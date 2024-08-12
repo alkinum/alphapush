@@ -1,0 +1,46 @@
+---
+import { getSession } from 'auth-astro/server';
+import TopUser from '../user/TopUser.vue';
+import { getDb } from '@/db';
+import { userCredentials } from '@/schema';
+import { eq } from 'drizzle-orm';
+
+const session = await getSession(Astro.request);
+let pushToken = null;
+
+if (session?.user?.email) {
+  const db = getDb(Astro.locals.runtime.env.DB);
+  const userCreds = await db.select().from(userCredentials).where(eq(userCredentials.email, session.user.email)).get();
+  pushToken = userCreds?.pushToken || null;
+}
+---
+
+<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4">
+  <div class="container mx-auto px-6 py-3 flex items-center justify-between">
+    <div class="text font-semibold text-primary">AlphaPush</div>
+    {
+      session ? (
+        <TopUser
+          client:load
+          userInfo={{
+            email: session.user?.email ?? '',
+            nickname: session.user?.name ?? '',
+            pushToken: pushToken ?? undefined,
+          }}
+        />
+      ) : null
+    }
+  </div>
+</header>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const topUser = document.querySelector('top-user');
+    if (topUser) {
+      const pushToken = topUser.getAttribute('data-push-token');
+      if (pushToken) {
+        localStorage.setItem('pushToken', pushToken);
+      }
+    }
+  });
+</script>

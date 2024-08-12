@@ -1,0 +1,330 @@
+---
+import { getSession } from 'auth-astro/server';
+import { Toaster } from '@/components/ui/toast';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import PwaGuidance from '@/components/mobile/PwaGuidance.vue';
+import EnhanceExperienceAlert from '@/components/alert/EnhanceExperienceAlert.vue';
+import Header from './Header.astro';
+
+import '@/styles/globals.css';
+
+const session = await getSession(Astro.request);
+const isLoggedIn = !!session?.user;
+const userEmail = session?.user?.email || '';
+
+// Get the user agent from the request headers
+const userAgent = Astro.request.headers.get('user-agent') || '';
+
+// Function to check if the device is mobile
+function isMobileDevice(ua: string) {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+}
+
+const isMobile = isMobileDevice(userAgent);
+---
+
+<html class="dark" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/png" href="/icons/icon-192x192.png" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>AlphaPush</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#09090B" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  </head>
+  <body class="min-h-screen" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
+    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen">
+      <Header />
+      <main class="w-full">
+        <EnhanceExperienceAlert isMobile={isMobile} client:load />
+        <div id="notification-permission-alert" class="hidden mb-4">
+          <Alert variant="destructive">
+            <AlertTitle><b>Notification Permission Required</b></AlertTitle>
+            <AlertDescription>
+              App will not work without a notification permission. Please enable notifications in your browser settings.
+            </AlertDescription>
+          </Alert>
+        </div>
+        <slot />
+      </main>
+    </div>
+    <slot name="body-ended" />
+    <Toaster client:load />
+    <PwaGuidance client:load />
+    <script>
+      import { signIn, signOut } from 'auth-astro/client';
+      import { useToast } from '@/components/ui/toast/use-toast';
+      import { getCombinedFingerprint } from '@/utils/fingerprint';
+
+      let vapidPublicKey = localStorage.getItem('vapidPublicKey');
+      let deviceFingerprint: string | null = null;
+
+      const { toast } = useToast();
+
+      async function getVapidKey() {
+        try {
+          const response = await fetch('/api/vapid-keys');
+          if (!response.ok) {
+            throw new Error('Failed to fetch VAPID key');
+          }
+          const data = (await response.json()) as { publicKey: string; pushToken: string };
+          vapidPublicKey = data.publicKey;
+          if (vapidPublicKey) {
+            localStorage.setItem('vapidPublicKey', vapidPublicKey);
+            return vapidPublicKey;
+          }
+          if (data.pushToken) {
+            document.dispatchEvent(new CustomEvent('newPushToken', { detail: { pushToken: data.pushToken } }));
+          }
+          throw new Error('Invalid VAPID key received');
+        } catch (error) {
+          console.error('Error fetching VAPID key:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to get push key. Please try again later.',
+            variant: 'destructive',
+          });
+          return null;
+        }
+      }
+
+      async function subscribeWebPush(publicKey: string) {
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+
+            // Check for existing subscription
+            let subscription = await registration.pushManager.getSubscription();
+
+            // Compare the existing subscription's application server key with the new one
+            if (subscription) {
+              const existingKey = arrayBufferToBase64(subscription.options.applicationServerKey as ArrayBuffer);
+              if (existingKey !== publicKey) {
+                // Unsubscribe only if the key is different
+                await subscription.unsubscribe();
+                subscription = null;
+              }
+            }
+
+            // Subscribe only if there's no valid subscription
+            if (!subscription) {
+              subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: publicKey,
+              });
+            } else {
+              return;
+            }
+
+            const userEmail = document.body.getAttribute('data-user-email');
+            if (!userEmail) {
+              throw new Error('User email not found');
+            }
+
+            deviceFingerprint = await getCombinedFingerprint(userEmail);
+
+            const response = await fetch('/api/subscription', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ subscription, deviceFingerprint }),
+            });
+
+            if (!response.ok) {
+              throw new Error('Failed to update subscription on server');
+            }
+          } catch (error) {
+            console.error('Web Push subscription failed:', error);
+            toast({
+              title: 'Error',
+              description: 'Push subscription failed. Please check your browser settings and try again.',
+              variant: 'destructive',
+            });
+          }
+        }
+      }
+
+      // Helper function to convert ArrayBuffer to Base64
+      function arrayBufferToBase64(buffer: ArrayBuffer): string {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer) as unknown as number[]));
+      }
+
+      async function unsubscribeWebPush() {
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+              await subscription.unsubscribe();
+
+              const userEmail = document.body.getAttribute('data-user-email');
+              if (!userEmail) {
+                throw new Error('User email not found');
+              }
+
+              deviceFingerprint = await getCombinedFingerprint(userEmail);
+
+              const response = await fetch('/api/subscription', {
+                method: 'DELETE',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ deviceFingerprint }),
+              });
+
+              if (!response.ok) {
+                throw new Error('Failed to delete subscription on server');
+              }
+            }
+          } catch (error) {
+            console.error('Unsubscribe web push failed:', error);
+            toast({
+              title: 'Error',
+              description: 'Failed to unsubscribe from Web Push. Please try again.',
+              variant: 'destructive',
+            });
+          }
+        }
+      }
+
+      async function requestNotificationPermission(): Promise<boolean> {
+        if (!('Notification' in window)) {
+          toast({
+            title: 'Error',
+            description: 'Your browser does not support notifications.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+
+        if (Notification.permission === 'granted') {
+          return true;
+        }
+
+        if (Notification.permission === 'denied') {
+          toast({
+            title: 'Notification Permission Denied',
+            description: 'Please enable notifications in your browser settings to receive push messages.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            return true;
+          } else {
+            toast({
+              title: 'Notification Permission Denied',
+              description:
+                'You have denied notification permission. To receive push messages, please enable notifications in your browser settings.',
+              variant: 'destructive',
+            });
+            return false;
+          }
+        } catch (error) {
+          console.error('Error requesting notification permission:', error);
+          toast({
+            title: 'Error',
+            description: 'An error occurred while requesting notification permission. Please try again later.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+      }
+
+      async function initializeWebPush() {
+        const permissionGranted = await requestNotificationPermission();
+        if (!permissionGranted) {
+          return;
+        }
+
+        if (!vapidPublicKey) {
+          vapidPublicKey = await getVapidKey();
+        }
+        if (vapidPublicKey) {
+          await subscribeWebPush(vapidPublicKey);
+        }
+      }
+
+      // Check if user is logged in
+      if (document.querySelector('[data-user-logged-in]')) {
+        console.debug('Starting to initialize web push...');
+        initializeWebPush();
+      }
+
+      // Listen for logout event
+      document.addEventListener('logout', async () => {
+        localStorage.removeItem('vapidPublicKey');
+        await unsubscribeWebPush();
+        signOut().then(() => {
+          window.location.reload();
+        });
+      });
+
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').then(
+            function (registration) {
+              console.log('ServiceWorker registration successful with scope: ', registration.scope);
+            },
+            function (err) {
+              console.error('ServiceWorker registration failed: ', err);
+              toast({
+                title: 'Error',
+                description: 'ServiceWorker registration failed. Some features may not work properly.',
+                variant: 'destructive',
+              });
+            },
+          );
+        });
+      }
+
+      document.addEventListener('login', async (event) => {
+        const { provider } = (event as CustomEvent).detail;
+        try {
+          await signIn(provider);
+        } catch (error) {
+          console.error('Failed to login:', error);
+        }
+      });
+
+      async function checkNotificationPermission() {
+        const alertElement = document.getElementById('notification-permission-alert');
+        if ('Notification' in window) {
+          if (Notification.permission === 'denied') {
+            alertElement?.classList.remove('hidden');
+          } else {
+            alertElement?.classList.add('hidden');
+          }
+        }
+      }
+
+      // Initial check
+      checkNotificationPermission();
+
+      // Listen for permission changes
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          checkNotificationPermission();
+        }
+      });
+
+      // Listen for display mode changes
+      window.matchMedia('(display-mode: standalone)').addEventListener('change', (evt) => {
+        if (evt.matches) {
+          const alertElement = document.getElementById('pwa-install-alert');
+          if (alertElement) {
+            alertElement.classList.add('hidden');
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+---
+import Page from '@/components/common/Page.astro';
+import NotificationList from '@/components/notification/NotificationList.vue';
+import { getSession } from 'auth-astro/server';
+
+const session = await getSession(Astro.request);
+let initialNotifications = [];
+let totalPages = 0;
+
+if (session?.user?.email) {
+  const apiUrl = new URL('/api/notifications', Astro.url);
+  apiUrl.searchParams.set('page', '1');
+  apiUrl.searchParams.set('pageSize', '10');
+
+  const response = await fetch(apiUrl, {
+    headers: {
+      Cookie: Astro.request.headers.get('Cookie') || '',
+    },
+  });
+
+  if (response.ok) {
+    const data = (await response.json()) as { notifications: any[]; totalPages: number; totalCount: number };
+    initialNotifications = data.notifications;
+    totalPages = data.totalPages;
+  } else {
+    console.error('Error fetching initial notifications:', await response.text());
+  }
+}
+---
+
+<Page>
+  <NotificationList
+    client:load
+    session={session?.user ? { user: { email: session.user.email ?? '', name: session.user.name ?? undefined } } : null}
+    initialNotifications={initialNotifications}
+    initialTotalPages={totalPages}
+  />
+</Page>
