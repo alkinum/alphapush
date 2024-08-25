@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { pushNotifications } from '@/schema';
 
@@ -60,6 +60,60 @@ export const GET: APIRoute = async ({ request, locals }) => {
     });
   } catch (error) {
     console.error('Error fetching notifications:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
+
+export const DELETE: APIRoute = async ({ request, locals }) => {
+  try {
+    const session = await getSession(request);
+    if (!session?.user?.email) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userEmail = session.user.email;
+    const db = getDb(locals.runtime.env.DB);
+
+    const url = new URL(request.url);
+    const notificationId = url.searchParams.get('id');
+
+    if (!notificationId) {
+      return new Response(JSON.stringify({ error: 'Missing notification ID' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const result = await db
+      .delete(pushNotifications)
+      .where(
+        and(
+          eq(pushNotifications.id, notificationId),
+          eq(pushNotifications.userEmail, userEmail)
+        )
+      )
+      .returning({ deletedId: pushNotifications.id })
+      .get();
+
+    if (result) {
+      return new Response(JSON.stringify({ message: 'Notification deleted successfully', deletedId: result.deletedId }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } else {
+      return new Response(JSON.stringify({ error: 'Notification not found or you do not have permission to delete it' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting notification:', error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

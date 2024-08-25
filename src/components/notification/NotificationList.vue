@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { TransitionGroup } from 'vue';
 
 import { Icon } from '@iconify/vue';
 import { Card, CardContent } from '@/components/ui/card';
@@ -89,7 +90,8 @@ const connectSSE = async () => {
     eventSource.addEventListener('newNotification', (event) => {
       console.debug('Received raw SSE message:', event);
       try {
-        notifications.value.unshift(JSON.parse(event.data));
+        const newNotification = JSON.parse(event.data);
+        handleNewNotification(newNotification);
       } catch (error) {
         console.error('Error parsing SSE data:', error);
       }
@@ -106,6 +108,27 @@ const connectSSE = async () => {
   } catch (error) {
     console.error('Error setting up SSE:', error);
   }
+};
+
+const handleNotificationDeleted = (deletedId: string) => {
+  const index = notifications.value.findIndex((n) => n.id === deletedId);
+  if (index !== -1) {
+    notifications.value[index].isDeleting = true;
+    setTimeout(() => {
+      notifications.value = notifications.value.filter((n) => n.id !== deletedId);
+    }, 500); // This should match the duration of your animation
+  }
+};
+
+const handleNewNotification = (newNotification: Notification) => {
+  newNotification.isNew = true;
+  notifications.value.unshift(newNotification);
+  setTimeout(() => {
+    const index = notifications.value.findIndex(n => n.id === newNotification.id);
+    if (index !== -1) {
+      notifications.value[index].isNew = false;
+    }
+  }, 500); // This should match the duration of your animation
 };
 
 onMounted(() => {
@@ -146,9 +169,20 @@ watch(
     <div class="w-full pb-6 box-border">
       <template v-if="user">
         <template v-if="!initialLoading">
-          <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
-            <NotificationCard v-for="notification in notifications" :key="notification.id" :notification="notification" />
-          </div>
+          <TransitionGroup
+            v-if="notifications.length > 0"
+            name="notification-list"
+            tag="div"
+            class="space-y-4"
+            id="notification-list"
+          >
+            <NotificationCard
+              v-for="notification in notifications"
+              :key="notification.id"
+              :notification="notification"
+              @deleted="handleNotificationDeleted"
+            />
+          </TransitionGroup>
           <Card v-else>
             <CardContent class="flex items-center justify-center p-6">
               <p class="text-muted-foreground">There's no notification here...</p>
@@ -167,3 +201,24 @@ watch(
     </div>
   </div>
 </template>
+
+<style scoped>
+.notification-list-enter-active,
+.notification-list-leave-active {
+  transition: all 0.5s ease;
+}
+
+.notification-list-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.notification-list-leave-to {
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.notification-list-move {
+  transition: transform 0.5s ease;
+}
+</style>
