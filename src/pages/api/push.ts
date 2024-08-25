@@ -140,7 +140,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
           reason: (error as Error).message,
         });
 
-        if (error instanceof Error && 'statusCode' in error && error.statusCode === 410) {
+        if (error instanceof Error && 'statusCode' in error && (error as any).statusCode === 410) {
           subscriptionsToRemove.push(sub.id);
         }
       }

@@ -23,7 +23,9 @@ export class WebPushService {
       const response = await fetch(subscription.endpoint, payload);
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const error = new Error(`HTTP error! status: ${response.status}`);
+        (error as any).statusCode = response.status;
+        throw error;
       }
 
       return true;
