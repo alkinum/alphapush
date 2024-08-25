@@ -20,7 +20,7 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
 
 <header class="bg-background border rounded-lg shadow-sm mt-4 mb-4">
   <div class="container mx-auto px-6 py-3 flex items-center justify-between">
-    <div class="text font-semibold text-primary">AlphaPush</div>
+    <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>
     {
       isAllowedUser ? (
         <TopUser
@@ -35,6 +35,20 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
     }
   </div>
 </header>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const logo = document.getElementById('logo');
+    if (logo) {
+      logo.addEventListener('click', () => {
+        const currentPath = window.location.pathname;
+        if (currentPath !== '/' && currentPath !== '/403') {
+          window.location.href = '/';
+        }
+      });
+    }
+  });
+</script>
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {

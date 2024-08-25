@@ -12,7 +12,7 @@ const session = await getSession(Astro.request);
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 const isLoggedIn = !!session?.user && isAllowedUser;
-const userEmail = isAllowedUser ? (session?.user?.email || '') : '';
+const userEmail = isAllowedUser ? session?.user?.email || '' : '';
 
 // Get the user agent from the request headers
 const userAgent = Astro.request.headers.get('user-agent') || '';
