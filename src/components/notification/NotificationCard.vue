@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import hljs from 'highlight.js';
 import { marked } from 'marked';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Notification } from '@/types/notification';
-import { highlighter } from '@/utils/highlighter';
+import 'highlight.js/styles/github-dark.css';
 
 interface Props {
   notification: Notification & { highlight?: boolean };
@@ -17,11 +18,8 @@ const isTruncated = ref(false);
 const buttonText = ref('View All');
 
 const renderer = new marked.Renderer();
-renderer.code = ({ text, lang }) => {
-  const highlightedCode = highlighter.codeToHtml(text, {
-    lang: lang || 'plaintext',
-    theme: 'github-dark',
-  });
+renderer.code = ({ text, language }) => {
+  const highlightedCode = hljs.highlight(text, { language });
   return `<div class="code-block">${highlightedCode}</div>`;
 };
 

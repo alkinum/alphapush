@@ -1,7 +1,7 @@
 {
   "name": "alphapush",
   "type": "module",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
@@ -12,7 +12,7 @@
     "db:migrate:local": "wrangler d1 migrations apply alphapush-prod --local",
     "db:migrate:prod": "wrangler d1 migrations apply alphapush-prod --remote",
     "db:migrate:dev": "wrangler d1 migrations apply --env dev alphapush-dev --remote",
-    "deploy": "astro build && wrangler deploy"
+    "deploy": "astro build && wrangler pages deploy dist"
   },
   "license": "MIT",
   "homepage": "https://github.com/alkinum/alphapush",
@@ -38,6 +38,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.33.0",
+    "highlight.js": "^11.10.0",
     "marked": "^14.0.0",
     "nanoid": "^5.0.7",
     "radix-vue": "^1.9.4",
