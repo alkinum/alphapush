@@ -1,5 +1,12 @@
 <template>
-  <Alert class="mb-4" variant="warning" :closable="true" v-if="shouldShow">
+  <Alert
+    class="mb-4"
+    variant="warning"
+    :closable="true"
+    v-if="shouldShow"
+    id="enhance-experience"
+    :allowDismissForever="true"
+  >
     <AlertTitle class="mb-2 font-bold">Enhance Your Experience</AlertTitle>
     <AlertDescription>{{ pwaInstallTip }}</AlertDescription>
   </Alert>
@@ -25,7 +32,8 @@ const pwaInstallTip = computed(() =>
 );
 
 function checkPwaInstallation() {
-  shouldShow.value = !window.matchMedia('(display-mode: standalone)').matches;
+  const isDismissed = localStorage.getItem('alert_enhance-experience_dismissed') === 'true';
+  shouldShow.value = !window.matchMedia('(display-mode: standalone)').matches && !isDismissed;
 }
 
 onMounted(() => {

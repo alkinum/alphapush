@@ -1,7 +1,9 @@
 ---
+import { getSession } from 'auth-astro/server';
+
+import CookiePrivacyBanner from '@/components/common/CookiePrivacyBanner.vue';
 import Page from '@/components/common/Page.astro';
 import NotificationList from '@/components/notification/NotificationList.vue';
-import { getSession } from 'auth-astro/server';
 
 const session = await getSession(Astro.request);
 let initialNotifications = [];
@@ -28,9 +30,9 @@ if (session?.user?.email) {
   if (response.ok) {
     const data = (await response.json()) as { notifications: any[]; totalPages: number; totalCount: number };
     const highlightedNotificationId = Astro.url.searchParams.get('notificationId');
-    initialNotifications = data.notifications.map(notification => ({
+    initialNotifications = data.notifications.map((notification) => ({
       ...notification,
-      highlight: notification.id === highlightedNotificationId
+      highlight: notification.id === highlightedNotificationId,
     }));
     totalPages = data.totalPages;
   } else {
@@ -46,4 +48,5 @@ if (session?.user?.email) {
     initialNotifications={initialNotifications}
     initialTotalPages={totalPages}
   />
+  <CookiePrivacyBanner client:load />
 </Page>
