@@ -1,12 +1,12 @@
 # Roadmap
 
-## Next minor version
+## v0.1.1
 
 - [x] Add a highlight effect to the notification when user enters the page from notification popup.
 - [x] Support for pushing notification with custom icon.
 - [ ] Support private access email whitelist.
 
-## Next major version
+## v0.2.0
 
 - [ ] Allow to delete a notification in both desktop and mobile devices.
 - [ ] Allow to push a notification with approval process.
