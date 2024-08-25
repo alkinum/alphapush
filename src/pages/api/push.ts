@@ -1,11 +1,14 @@
 import type { APIRoute } from 'astro';
 import { eq } from 'drizzle-orm';
+import type { PushSubscription } from '@block65/webcrypto-web-push';
+import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
 import { userCredentials, pushNotifications, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
-import type { PushSubscription } from '@block65/webcrypto-web-push';
-import { sendSSEvent } from './stream';
 import { SubscriptionService } from '@/services/subscriptionService';
+import { ApprovalProcessService } from '@/services/approvalProcessService';
+import type { Notification } from '@/types/notification';
+import { sendSSEvent } from './stream';
 
 interface PushBody {
   pushToken: string;
@@ -47,6 +50,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const db = getDb(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(locals.runtime.env.DB);
 
     const user = await db.select().from(userCredentials).where(eq(userCredentials.pushToken, body.pushToken)).get();
     if (!user) {
@@ -84,9 +88,54 @@ export const POST: APIRoute = async ({ request, locals }) => {
       group: header.group,
       userEmail: user.email,
       iconUrl: header.icon_url,
+      type: header.type,
     };
 
-    const notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+    let notification: Notification | undefined;
+    let approvalId: string | undefined;
+    let tempAccessToken: string | undefined;
+
+    if (header.type === 'approval-process') {
+      if (!header.webhook_url) {
+        return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      await db.transaction(async (trx) => {
+        notification = await trx.insert(pushNotifications).values(notificationData).returning().get();
+
+        const approvalProcessData = {
+          notificationId: notification.id,
+          webhookUrl: header.webhook_url,
+          userEmail: user.email,
+        };
+
+        const approvalProcess = await approvalProcessService.addApprovalProcess(trx, approvalProcessData);
+        if (!approvalProcess) {
+          throw new Error('Failed to create approval process');
+        }
+        approvalId = approvalProcess.id;
+
+        // Generate and store temporary access token
+        tempAccessToken = createId();
+        await locals.runtime.env.KV.put(
+          `approval_token:${approvalId}`,
+          tempAccessToken,
+          { expirationTtl: 300 }, // 5 minutes in seconds
+        );
+      });
+    } else {
+      notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+    }
+
+    if (!notification) {
+      return new Response(JSON.stringify({ error: 'Failed to create notification' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const userSubscriptions = await db
       .select()
@@ -114,6 +163,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       category: notification.category,
       group: notification.group,
       iconUrl: notification.iconUrl,
+      type: notification.type,
+      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalId: approvalId,
+      tempAccessToken: tempAccessToken,
+      createdAt: Date.now(),
     });
 
     // Check message size
@@ -157,13 +211,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     sendSSEvent(user.email, 'newNotification', {
-      id: notification.id,
-      title: notification.title,
-      content: notification.content,
-      category: notification.category,
-      group: notification.group,
-      createdAt: notification.createdAt,
-      iconUrl: notification.iconUrl,
+      ...notification,
+      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalId: approvalId,
     });
 
     if (failedPushes.length > 0) {
@@ -180,7 +230,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
       );
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    const responseData: {
+      success: boolean;
+      notificationId: string;
+      approvalId?: string;
+    } = {
+      success: true,
+      notificationId: notification.id,
+    };
+
+    if (header.type === 'approval-process' && approvalId) {
+      responseData.approvalId = approvalId;
+    }
+
+    return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });

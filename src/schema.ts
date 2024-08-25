@@ -22,6 +22,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
   category: text('category'),
   group: text('group'),
   userEmail: text('user_email').notNull(),
+  type: text('type'),
   iconUrl: text('icon_url'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
@@ -34,6 +35,20 @@ export const subscriptions = sqliteTable('subscriptions', {
   userEmail: text('user_email').notNull(),
   deviceFingerprint: text('device_fingerprint').notNull(),
   subscription: text('subscription').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const approvalProcesses = sqliteTable('approval_processes', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  userEmail: text('user_email').notNull(),
+  notificationId: text('notification_id').notNull(),
+  webhookUrl: text('webhook_url').notNull(),
+  state: text('state')
+    .notNull()
+    .$default(() => 'pending'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
