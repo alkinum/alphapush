@@ -76,7 +76,12 @@ export const GET: APIRoute = async ({ request, locals }) => {
           return;
         }
         try {
-          controller.enqueue(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`);
+          // Check if the controller is closed
+          if (controller.desiredSize !== null) {
+            controller.enqueue(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`);
+          } else {
+            throw new Error('Controller is closed');
+          }
         } catch (error) {
           console.error('Error sending heartbeat:', error);
           clearInterval(heartbeatInterval);
