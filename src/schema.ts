@@ -22,6 +22,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
   category: text('category'),
   group: text('group'),
   userEmail: text('user_email').notNull(),
+  iconUrl: text('icon_url'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

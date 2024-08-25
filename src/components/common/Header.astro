@@ -13,13 +13,16 @@ if (session?.user?.email) {
   const userCreds = await db.select().from(userCredentials).where(eq(userCredentials.email, session.user.email)).get();
   pushToken = userCreds?.pushToken || null;
 }
+
+const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
+const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 ---
 
 <header class="bg-background border rounded-lg shadow-sm mt-4 mb-4">
   <div class="container mx-auto px-6 py-3 flex items-center justify-between">
     <div class="text font-semibold text-primary">AlphaPush</div>
     {
-      session ? (
+      isAllowedUser ? (
         <TopUser
           client:load
           userInfo={{

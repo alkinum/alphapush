@@ -2,16 +2,14 @@ self.addEventListener('push', function (event) {
   const data = event.data.json();
   const options = {
     body: data.body,
-    icon: '/icon.png',
-    vibrate: [100, 50, 100],
+    icon: data.iconUrl || '/icon.png',
+    vibrate: [50, 10, 60, 25, 90],
     data: {
-      dateOfArrival: Date.now(),
-      primaryKey: '2',
+      id: data.id,
+      category: encodeURIComponent(data.category),
+      group: encodeURIComponent(data.group),
     },
-    actions: [
-      { action: 'explore', title: 'View Details' },
-      { action: 'close', title: 'Close' },
-    ],
+    actions: [{ action: 'detail', title: 'View Details' }],
   };
 
   // Immediately show the notification, without using event.waitUntil
@@ -21,11 +19,13 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
-  if (event.action === 'explore') {
+  const notificationData = event.notification.data;
+
+  if (event.action === 'detail') {
     // Handle the "View Details" action
-    clients.openWindow('/details');
-  } else if (event.action === 'close') {
-    // Handle the "Close" action
+    clients.openWindow(
+      `/?notificationId=${notificationData.id}&category=${notificationData.category}&group=${notificationData.group}`,
+    );
   } else {
     // Handle the case where the notification itself is clicked
     clients.openWindow('/');

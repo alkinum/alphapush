@@ -33,20 +33,14 @@ function parseMarkdownHeader(content: string): MarkdownHeader {
   return result;
 }
 
+const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     const body = (await request.json()) as PushBody;
 
     if (!body.pushToken || !body.content) {
       return new Response(JSON.stringify({ error: 'Invalid input parameters' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Added content length check
-    if (body.content.length > 1000) {
-      return new Response(JSON.stringify({ error: 'Content length exceeds 1000 characters limit' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -66,12 +60,30 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const header = parseMarkdownHeader(trimmedContent);
     const content = trimmedContent.replace(/^---\s*\n[\s\S]*?\n\s*---\s*\n/, '').trim();
 
+    if (header.icon_url) {
+      try {
+        const url = new URL(header.icon_url);
+        if (url.protocol !== 'https:') {
+          return new Response(JSON.stringify({ error: 'Icon URL must use HTTPS protocol' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      } catch (error) {
+        return new Response(JSON.stringify({ error: 'Invalid icon URL' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     const notificationData = {
       content,
       title: header.title,
       category: header.category,
       group: header.group,
       userEmail: user.email,
+      iconUrl: header.icon_url,
     };
 
     const notification = await db.insert(pushNotifications).values(notificationData).returning().get();
@@ -94,15 +106,26 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const subscriptionService = new SubscriptionService(locals.runtime.env.DB);
     const subscriptionsToRemove: string[] = [];
 
+    // Construct the message outside the loop
+    const message = JSON.stringify({
+      id: notification.id,
+      title: notification.title,
+      body: notification.content,
+      category: notification.category,
+      group: notification.group,
+      iconUrl: notification.iconUrl,
+    });
+
+    // Check message size
+    if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
+      return new Response(JSON.stringify({ error: 'Message size exceeds 4KB limit' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     for (const sub of userSubscriptions) {
       const subscription: PushSubscription = JSON.parse(sub.subscription);
-
-      const message = JSON.stringify({
-        title: notification.title,
-        body: notification.content,
-        category: notification.category,
-        group: notification.group,
-      });
 
       try {
         await webPushService.sendNotification(subscription, message, {
@@ -140,6 +163,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       category: notification.category,
       group: notification.group,
       createdAt: notification.createdAt,
+      iconUrl: notification.iconUrl,
     });
 
     if (failedPushes.length > 0) {
