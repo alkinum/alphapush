@@ -20,7 +20,11 @@ if (session?.user?.email) {
 
   if (response.ok) {
     const data = (await response.json()) as { notifications: any[]; totalPages: number; totalCount: number };
-    initialNotifications = data.notifications;
+    const highlightedNotificationId = Astro.url.searchParams.get('notificationId');
+    initialNotifications = data.notifications.map(notification => ({
+      ...notification,
+      highlight: notification.id === highlightedNotificationId
+    }));
     totalPages = data.totalPages;
   } else {
     console.error('Error fetching initial notifications:', await response.text());

@@ -8,6 +8,13 @@
       "when": 1723925170311,
       "tag": "0000_brainy_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1724580633045,
+      "tag": "0001_familiar_vampiro",
+      "breakpoints": true
     }
   ]
 }

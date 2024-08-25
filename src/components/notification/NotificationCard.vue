@@ -7,7 +7,7 @@ import type { Notification } from '@/types/notification';
 import { highlighter } from '@/utils/highlighter';
 
 interface Props {
-  notification: Notification;
+  notification: Notification & { highlight?: boolean };
 }
 
 const props = defineProps<Props>();
@@ -44,11 +44,23 @@ onMounted(() => {
   } else {
     isTruncated.value = false;
   }
+
+  // Clear the query parameter
+  if (props.notification.highlight) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('notificationId');
+    url.searchParams.delete('category');
+    url.searchParams.delete('group');
+    window.history.replaceState({}, '', url);
+  }
 });
 </script>
 
 <template>
-  <Card class="w-full mb-4 overflow-hidden notification-card">
+  <Card
+    class="w-full mb-4 overflow-hidden notification-card"
+    :class="{ 'highlight-effect': props.notification.highlight }"
+  >
     <CardHeader class="pt-6 pb-2 px-6">
       <CardTitle>{{ notification.title }}</CardTitle>
     </CardHeader>
@@ -173,5 +185,23 @@ onMounted(() => {
 .markdown-content :deep(pre) {
   padding: 1em;
   overflow-x: auto;
+}
+
+.highlight-effect {
+  animation: highlight 1.2s ease-in-out;
+  animation-delay: 200ms;
+}
+
+@keyframes highlight {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  40% {
+    background-color: hsl(var(--primary) / 0.1);
+  }
+  60% {
+    background-color: hsl(var(--primary) / 0.1);
+  }
 }
 </style>
