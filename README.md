@@ -117,6 +117,20 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 
 This project utilizes AI-generated code to enhance development efficiency. We leverage advanced language models to assist with code generation, problem-solving, and optimization. While AI contributes to our development process, all code is reviewed and validated by human developers to ensure quality and reliability.
 
+For information about upcoming features and our development roadmap, see the [Roadmap](#roadmap) section below.
+
+## Roadmap
+
+### Future Plans
+
+- Add email authentication method
+- Allow to filter notifications by category
+- Add TTL (Time To Live) option for notifications
+- Enable pushing encrypted notifications
+- Implement a settings panel for users to reset push token and VAPID keys
+
+For more detailed information about our development plans and progress, please check our [full roadmap](./Roadmap.md).
+
 ## License
 
 AlphaPush is open-sourced under the MIT license. See the LICENSE file for more information.

@@ -4,7 +4,7 @@
 
 ### v0.2.0
 
-- [ ] Allow to delete a notification in both desktop and mobile devices.
+- [x] Allow to delete a notification in both desktop and mobile devices.
 - [ ] Allow to push a notification with approval process.
 
 ### Future
@@ -13,6 +13,7 @@
 - [ ] Allow to filter notifications by category.
 - [ ] Allow to add a ttl to the notification.
 - [ ] Allow to push an encrypted notification.
+- [ ] Allow user to reset the push token and vapid keys in a settings panel.
 
 ## Done
 

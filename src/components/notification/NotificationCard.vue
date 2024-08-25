@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { marked } from 'marked';
+import { useSwipe } from '@vueuse/core';
+import { Icon } from '@iconify/vue';
+
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Notification } from '@/types/notification';
 import { highlighter } from '@/utils/highlighter';
-import { useSwipe } from '@vueuse/core';
-import { Icon } from '@iconify/vue';
 import {
   ContextMenu,
   ContextMenuContent,
