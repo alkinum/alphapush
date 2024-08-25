@@ -2,6 +2,12 @@
 
 ## Planned Features
 
+### v0.1.2
+
+- [x] Add a privacy policy page.
+- [x] Add a cookie agreement banner at the bottom of the page.
+- [ ] Add an option to allow an alert will not show up in the future once user dismiss it.
+
 ### v0.2.0
 
 - [ ] Allow to delete a notification in both desktop and mobile devices.

@@ -1,0 +1,90 @@
+---
+import { marked } from 'marked';
+import Page from '@/components/common/Page.astro';
+import { Card, CardContent } from '@/components/ui/card';
+
+const privacyPolicyMarkdown = `
+# Privacy Policy
+
+## Introduction
+
+Welcome to AlphaPush. We are committed to protecting your privacy and ensuring the security of your personal information. This Privacy Policy explains how we collect, use, and safeguard your data when you use our service.
+
+## Information We Collect
+
+### Device Information
+
+We use Fingerprint.js to collect device information for the purpose of improving your experience and ensuring the security of our service. This information may include:
+
+### Cookies
+We use cookies to enhance your browsing experience and provide personalized features. Cookies are small text files stored on your device that help us recognize you and remember your preferences.
+
+## How We Use Your Information
+
+The information we collect is used solely for the following purposes:
+
+1. To provide and maintain our service
+2. To improve user experience
+
+## Data Security
+
+We take the security of your data seriously. All device information and other data collected are:
+
+- Not shared with any third parties
+- Not stored alongside sensitive data in our local databases
+- Protected using industry-standard security measures
+
+## Your Rights
+
+You have the right to:
+
+- Access the personal information we hold about you
+- Request correction of any inaccurate information
+- Request deletion of your data from our systems
+
+## Changes to This Policy
+
+We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
+`;
+
+const content = marked(privacyPolicyMarkdown);
+---
+
+<Page title="Privacy Policy" description="Our commitment to protecting your privacy">
+  <Card class="max-w-4xl mx-auto">
+    <CardContent class="prose dark:prose-invert max-w-none pt-8 px-8 pb-10">
+      <div set:html={content} class="space-y-8" />
+    </CardContent>
+  </Card>
+  <p class="text-sm text-center mt-8 mb-10 text-gray-600 dark:text-gray-400">Last updated: 2024-08-25</p>
+</Page>
+
+<style is:global>
+  .prose h1 {
+    @apply text-xl font-bold mb-4 text-primary;
+  }
+  .prose h2 {
+    @apply text-lg font-semibold mt-4 mb-2 text-primary;
+  }
+  .prose h3 {
+    @apply text-base font-medium my-2;
+  }
+  .prose p {
+    @apply mb-2 leading-relaxed;
+  }
+  .prose ul {
+    @apply list-disc list-inside mb-2 pl-4;
+  }
+  .prose ol {
+    @apply list-decimal list-inside mb-2 pl-4;
+  }
+  .prose li {
+    @apply mb-2;
+  }
+  .prose a {
+    @apply text-blue-600 hover:underline dark:text-blue-400;
+  }
+  .prose strong {
+    @apply font-semibold;
+  }
+</style>
