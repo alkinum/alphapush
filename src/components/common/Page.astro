@@ -9,8 +9,10 @@ import Header from './Header.astro';
 import '@/styles/globals.css';
 
 const session = await getSession(Astro.request);
-const isLoggedIn = !!session?.user;
-const userEmail = session?.user?.email || '';
+const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
+const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
+const isLoggedIn = !!session?.user && isAllowedUser;
+const userEmail = isAllowedUser ? (session?.user?.email || '') : '';
 
 // Get the user agent from the request headers
 const userAgent = Astro.request.headers.get('user-agent') || '';
@@ -260,15 +262,6 @@ const isMobile = isMobileDevice(userAgent);
         initializeWebPush();
       }
 
-      // Listen for logout event
-      document.addEventListener('logout', async () => {
-        localStorage.removeItem('vapidPublicKey');
-        await unsubscribeWebPush();
-        signOut().then(() => {
-          window.location.reload();
-        });
-      });
-
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js').then(
@@ -294,6 +287,15 @@ const isMobile = isMobileDevice(userAgent);
         } catch (error) {
           console.error('Failed to login:', error);
         }
+      });
+
+      // Listen for logout event
+      document.addEventListener('logout', async () => {
+        localStorage.removeItem('vapidPublicKey');
+        await unsubscribeWebPush();
+        signOut().then(() => {
+          window.location.reload();
+        });
       });
 
       async function checkNotificationPermission() {
