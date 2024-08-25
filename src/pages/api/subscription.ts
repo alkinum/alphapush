@@ -3,7 +3,6 @@ import { getSession } from 'auth-astro/server';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
-import { SubscriptionService } from '@/services/subscriptionService';
 
 // Helper function: Validate SHA256 hash
 function isValidSHA256(hash: string): boolean {

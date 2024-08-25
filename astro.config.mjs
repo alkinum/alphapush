@@ -18,4 +18,9 @@ export default defineConfig({
     }),
     auth(),
   ],
+  vite: {
+    ssr: {
+      external: ['node:crypto', 'node:path'],
+    },
+  },
 });
