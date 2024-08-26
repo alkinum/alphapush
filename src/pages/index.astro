@@ -10,13 +10,14 @@ let initialNotifications = [];
 let totalPages = 0;
 
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
-const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
+const isLogin = !!session?.user?.email;
+const isAllowedUser = isLogin && allowedEmails.includes(session?.user?.email);
 
-if (!isAllowedUser) {
+if (isLogin && !isAllowedUser) {
   return Astro.redirect('/403');
 }
 
-if (session?.user?.email) {
+if (isLogin) {
   const apiUrl = new URL('/api/notifications', Astro.url);
   apiUrl.searchParams.set('page', '1');
   apiUrl.searchParams.set('pageSize', '10');
