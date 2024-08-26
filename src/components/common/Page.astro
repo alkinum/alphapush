@@ -257,7 +257,12 @@ const isMobile = isMobileDevice(userAgent);
       }
 
       // Check if user is logged in
-      if (document.querySelector('[data-user-logged-in]')) {
+      const isLoggedIn = document.body.getAttribute('data-user-logged-in') === 'true';
+
+      if (!isLoggedIn) {
+        localStorage.removeItem('vapidPublicKey');
+        localStorage.removeItem('pushToken');
+      } else {
         console.debug('Starting to initialize web push...');
         initializeWebPush();
       }
@@ -291,7 +296,10 @@ const isMobile = isMobileDevice(userAgent);
 
       // Listen for logout event
       document.addEventListener('logout', async () => {
+        // Delete user related localstoarge items
         localStorage.removeItem('vapidPublicKey');
+        localStorage.removeItem('pushToken');
+
         await unsubscribeWebPush();
         signOut().then(() => {
           window.location.reload();

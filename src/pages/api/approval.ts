@@ -3,10 +3,12 @@ import { getSession } from 'auth-astro/server';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import type { ApprovalState } from '@/types/approval';
 import { sendSSEvent } from './stream';
+import { getDb } from '@/db';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
-    const approvalProcessService = new ApprovalProcessService(locals.runtime.env.DB);
+    const db = getDb(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(db);
     const body = (await request.json()) as { approvalId: string; state: ApprovalState };
     const { approvalId, state } = body;
 
@@ -60,28 +62,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
-    if (!approvalProcess) {
-      return new Response(JSON.stringify({ error: 'Approval process not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (approvalProcess.state !== 'pending') {
-      return new Response(JSON.stringify({ error: 'Cannot update a non-pending approval process' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const updatedApproval = await approvalProcessService.updateApprovalProcessState(approvalId, state);
-
-    if (!updatedApproval) {
-      return new Response(JSON.stringify({ error: 'Failed to update approval state' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    let updatedApproval;
+    try {
+      updatedApproval = await approvalProcessService.updateApprovalProcessState(approvalId, state);
+    } catch (error) {
+      if (error instanceof Error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw error;
     }
 
     // Call the webhook

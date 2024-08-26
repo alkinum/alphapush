@@ -25,7 +25,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
     const userEmail = session.user.email;
     const db = getDb(locals.runtime.env.DB);
-    const approvalProcessService = new ApprovalProcessService(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(db);
 
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1', 10);
@@ -96,7 +96,7 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
 
     const userEmail = session.user.email;
     const db = getDb(locals.runtime.env.DB);
-    const approvalProcessService = new ApprovalProcessService(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(db);
 
     const url = new URL(request.url);
     const notificationId = url.searchParams.get('id');
@@ -108,29 +108,31 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    let result: { deletedId: string } | undefined;
+    const notification = await db
+      .select()
+      .from(pushNotifications)
+      .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)))
+      .get();
 
-    await db.transaction(async (trx) => {
-      const notification = await trx
-        .select()
-        .from(pushNotifications)
-        .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)))
-        .get();
+    if (!notification) {
+      return new Response(
+        JSON.stringify({ error: 'Notification not found or you do not have permission to delete it' }),
+        {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
 
-      if (!notification) {
-        throw new Error('Notification not found or you do not have permission to delete it');
-      }
+    if (notification.type === 'approval-process') {
+      await approvalProcessService.deleteApprovalProcessByNotificationId(notificationId);
+    }
 
-      if (notification.type === 'approval-process') {
-        await approvalProcessService.deleteApprovalProcessByNotificationId(trx, notificationId);
-      }
-
-      result = await trx
-        .delete(pushNotifications)
-        .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)))
-        .returning({ deletedId: pushNotifications.id })
-        .get();
-    });
+    const result = await db
+      .delete(pushNotifications)
+      .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)))
+      .returning({ deletedId: pushNotifications.id })
+      .get();
 
     if (result) {
       return new Response(
@@ -141,13 +143,10 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
         },
       );
     } else {
-      return new Response(
-        JSON.stringify({ error: 'Notification not found or you do not have permission to delete it' }),
-        {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
+      return new Response(JSON.stringify({ error: 'Failed to delete notification' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
   } catch (error) {
     console.error('Error deleting notification:', error);

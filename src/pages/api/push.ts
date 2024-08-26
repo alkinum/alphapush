@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
-import { userCredentials, pushNotifications, subscriptions } from '@/schema';
+import { userCredentials, pushNotifications, subscriptions, approvalProcesses } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
@@ -50,7 +50,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const db = getDb(locals.runtime.env.DB);
-    const approvalProcessService = new ApprovalProcessService(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(db);
 
     const user = await db.select().from(userCredentials).where(eq(userCredentials.pushToken, body.pushToken)).get();
     if (!user) {
@@ -95,6 +95,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     let approvalId: string | undefined;
     let tempAccessToken: string | undefined;
 
+    // Insert notification
+    notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+
+    if (!notification) {
+      throw new Error('Failed to create notification');
+    }
+
     if (header.type === 'approval-process') {
       if (!header.webhook_url) {
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
@@ -103,38 +110,26 @@ export const POST: APIRoute = async ({ request, locals }) => {
         });
       }
 
-      await db.transaction(async (trx) => {
-        notification = await trx.insert(pushNotifications).values(notificationData).returning().get();
-
-        const approvalProcessData = {
-          notificationId: notification.id,
-          webhookUrl: header.webhook_url,
-          userEmail: user.email,
-        };
-
-        const approvalProcess = await approvalProcessService.addApprovalProcess(trx, approvalProcessData);
-        if (!approvalProcess) {
-          throw new Error('Failed to create approval process');
-        }
-        approvalId = approvalProcess.id;
-
-        // Generate and store temporary access token
-        tempAccessToken = createId();
-        await locals.runtime.env.KV.put(
-          `approval_token:${approvalId}`,
-          tempAccessToken,
-          { expirationTtl: 300 }, // 5 minutes in seconds
-        );
+      // Insert approval process
+      const approvalProcess = await approvalProcessService.addApprovalProcess({
+        notificationId: notification.id,
+        webhookUrl: header.webhook_url,
+        userEmail: user.email,
       });
-    } else {
-      notification = await db.insert(pushNotifications).values(notificationData).returning().get();
-    }
 
-    if (!notification) {
-      return new Response(JSON.stringify({ error: 'Failed to create notification' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      if (!approvalProcess) {
+        throw new Error('Failed to create approval process');
+      }
+
+      approvalId = approvalProcess.id;
+
+      // Generate and store temporary access token
+      tempAccessToken = createId();
+      await locals.runtime.env.KV.put(
+        `approval_token:${approvalId}`,
+        tempAccessToken,
+        { expirationTtl: 300 }, // 5 minutes in seconds
+      );
     }
 
     const userSubscriptions = await db

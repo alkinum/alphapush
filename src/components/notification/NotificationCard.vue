@@ -5,7 +5,7 @@ import { marked } from 'marked';
 import { useSwipe } from '@vueuse/core';
 import { Icon } from '@iconify/vue';
 
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Notification } from '@/types/notification';
 import {
@@ -46,8 +46,8 @@ const isSwiped = ref(false);
 const cardRef = ref<HTMLElement | null>(null);
 
 const renderer = new marked.Renderer();
-renderer.code = ({ text, language }) => {
-  const highlightedCode = hljs.highlight(text, { language });
+renderer.code = ({ text, lang }) => {
+  const highlightedCode = hljs.highlight(text, { language: lang || 'text' });
   return `<div class="code-block">${highlightedCode}</div>`;
 };
 
@@ -95,6 +95,51 @@ const handleDelete = async () => {
 
 const handleSwipeReset = () => {
   isSwiped.value = false;
+};
+
+const isApprovalProcess = computed(() => props.notification.type === 'approval-process');
+const approvalState = ref(props.notification.approvalState);
+
+const showApprovalButtons = computed(() => isApprovalProcess.value && approvalState.value === 'pending');
+
+const handleApprove = async () => {
+  await updateApprovalState('approved');
+};
+
+const handleReject = async () => {
+  await updateApprovalState('rejected');
+};
+
+const updateApprovalState = async (state: 'approved' | 'rejected') => {
+  try {
+    const response = await fetch('/api/approval', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        approvalId: props.notification.approvalId,
+        state,
+      }),
+    });
+
+    if (response.ok) {
+      approvalState.value = state;
+      toast({
+        title: 'Approval State Updated',
+        description: `The approval has been ${state}.`,
+      });
+    } else {
+      throw new Error('Failed to update approval state');
+    }
+  } catch (error) {
+    console.error('Error updating approval state:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to update approval state. Please try again.',
+      variant: 'destructive',
+    });
+  }
 };
 
 onMounted(() => {
@@ -147,19 +192,19 @@ onMounted(() => {
         <CardHeader class="pt-6 pb-2 px-6">
           <CardTitle>{{ notification.title }}</CardTitle>
         </CardHeader>
-        <CardContent class="relative pt-2">
+        <CardContent class="relative pt-2 pb-4">
           <div
             ref="content"
             class="markdown-content"
-            :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated }"
+            :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
             v-html="renderedContent"
           ></div>
           <div
-            v-show="isLikelyTruncated"
+            v-if="isLikelyTruncated && !isApprovalProcess"
             class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
           ></div>
           <Button
-            v-show="isLikelyTruncated"
+            v-if="isLikelyTruncated && !isApprovalProcess"
             variant="ghost"
             size="sm"
             class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
@@ -168,6 +213,17 @@ onMounted(() => {
             {{ buttonText }}
           </Button>
         </CardContent>
+        <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+          <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
+            <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
+            <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+          </div>
+          <div v-else class="flex justify-end items-center w-full">
+            <Button size="sm" disabled class="w-full">
+              {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
+            </Button>
+          </div>
+        </CardFooter>
       </Card>
     </ContextMenuTrigger>
     <ContextMenuContent>
@@ -195,7 +251,7 @@ onMounted(() => {
       <CardHeader class="pt-6 pb-2 px-6">
         <CardTitle>{{ notification.title }}</CardTitle>
       </CardHeader>
-      <CardContent class="relative pt-2">
+      <CardContent class="relative pt-2 pb-4">
         <div
           ref="content"
           class="markdown-content"
@@ -216,6 +272,17 @@ onMounted(() => {
           {{ buttonText }}
         </Button>
       </CardContent>
+      <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+        <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
+          <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
+          <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+        </div>
+        <div v-else class="flex justify-end items-center w-full">
+          <Button size="sm" disabled class="w-full">
+            {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
+          </Button>
+        </div>
+      </CardFooter>
     </Card>
 
     <Button
@@ -404,5 +471,9 @@ onMounted(() => {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+.notification-card :deep(.border-t) {
+  border-top: 1px solid hsl(var(--border));
 }
 </style>
