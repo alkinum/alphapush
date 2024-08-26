@@ -3,11 +3,10 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     },
     "jsx": "preserve",
     "types": ["@cloudflare/workers-types"]
-  }
+  },
+  "exclude": ["dist", "public"]
 }
