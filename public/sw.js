@@ -6,7 +6,7 @@ self.addEventListener('push', function (event) {
   let options = {
     body: data.body,
     icon: data.iconUrl || '/icon.png',
-    vibrate: [50, 25, 120],
+    vibrate: [100, 75, 240],
     data: {
       id: data.id,
       category: data.category,
@@ -20,7 +20,6 @@ self.addEventListener('push', function (event) {
 
   if (data.type === 'approval-process') {
     options.actions = [
-      { action: 'detail', title: 'View Details' },
       { action: 'reject', title: 'Reject' },
       { action: 'approve', title: 'Approve' },
     ];
@@ -89,3 +88,11 @@ async function updateApprovalState(approvalId, action, token) {
 
   return response.json();
 }
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
