@@ -129,22 +129,52 @@ const isMobile = isMobileDevice(userAgent);
 
             deviceFingerprint = await getCombinedFingerprint(userEmail);
 
-            const response = await fetch('/api/subscription', {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ subscription, deviceFingerprint }),
-            });
+            const maxRetries = 3;
+            let retries = 0;
+            let success = false;
 
-            if (!response.ok) {
-              throw new Error('Failed to update subscription on server');
+            while (retries < maxRetries && !success) {
+              try {
+                const response = await fetch('/api/subscription', {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ subscription, deviceFingerprint }),
+                });
+
+                if (!response.ok) {
+                  throw new Error('Failed to update subscription on server');
+                }
+
+                success = true;
+              } catch (error) {
+                retries++;
+                if (retries >= maxRetries) {
+                  throw error;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retries)));
+              }
+            }
+
+            if (!success) {
+              // Cancel the subscription
+              await subscription.unsubscribe();
+              throw new Error('Failed to update subscription after multiple attempts');
             }
           } catch (error) {
             console.error('Web Push subscription failed:', error);
+            // Cancel the subscription if it exists
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+              await subscription.unsubscribe();
+            }
+
+            // Show error toast
             toast({
               title: 'Error',
-              description: 'Push subscription failed. Please check your browser settings and try again.',
+              description: 'Push subscription failed. Please reload the app and try again.',
               variant: 'destructive',
             });
           }
