@@ -12,7 +12,8 @@
     "db:migrate:local": "wrangler d1 migrations apply alphapush-prod --local",
     "db:migrate:prod": "wrangler d1 migrations apply alphapush-prod --remote",
     "db:migrate:dev": "wrangler d1 migrations apply --env dev alphapush-dev --remote",
-    "deploy": "astro build && wrangler pages deploy dist"
+    "deploy:dev": "astro build && wrangler pages deploy dist --branch dev",
+    "deploy:prod": "astro build && wrangler pages deploy dist --branch main"
   },
   "license": "MIT",
   "homepage": "https://github.com/alkinum/alphapush",
