@@ -49,12 +49,13 @@ export const GET: APIRoute = async ({ request, locals }) => {
         .get(),
     ]);
 
-    const notificationsWithApprovalState = await Promise.all(
+    const notificationsWithApprovalInfo = await Promise.all(
       notificationsResult.map(async (notification) => {
         if (notification.type === 'approval-process') {
           const approvalProcess = await approvalProcessService.getApprovalProcessByNotificationId(notification.id);
           return {
             ...notification,
+            approvalId: approvalProcess?.id,
             approvalState: approvalProcess?.state as ApprovalState,
           };
         }
@@ -66,7 +67,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     const totalPages = Math.ceil(Number(totalCount) / pageSize);
 
     const response: NotificationResponse = {
-      notifications: notificationsWithApprovalState,
+      notifications: notificationsWithApprovalInfo,
       totalCount: Number(totalCount),
       totalPages,
     };
