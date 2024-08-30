@@ -3,11 +3,13 @@ import { eq } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
-import { userCredentials, pushNotifications, subscriptions, approvalProcesses } from '@/schema';
+import { userCredentials, pushNotifications, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import type { Notification } from '@/types/notification';
+import { isLocalNetworkUrl } from '@/utils/network';
+
 import { sendSSEvent } from './stream';
 
 interface PushBody {
@@ -16,6 +18,8 @@ interface PushBody {
 }
 
 type MarkdownHeader = Record<string, string>;
+
+const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
 
 function parseMarkdownHeader(content: string): MarkdownHeader {
   const trimmedContent = content.trim();
@@ -36,7 +40,28 @@ function parseMarkdownHeader(content: string): MarkdownHeader {
   return result;
 }
 
-const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
+/**
+ * Checks if a webhook URL is valid and not a local network URL.
+ * @param url The webhook URL to check
+ * @returns An object with a boolean indicating if the URL is valid and a possible error message
+ */
+export function validateWebhookUrl(url: string): { isValid: boolean; error?: string } {
+  if (!url) {
+    return { isValid: false, error: 'Webhook URL is required' };
+  }
+
+  try {
+    new URL(url);
+  } catch (error) {
+    return { isValid: false, error: 'Invalid URL format' };
+  }
+
+  if (isLocalNetworkUrl(url)) {
+    return { isValid: false, error: 'Local network URLs are not allowed for webhooks' };
+  }
+
+  return { isValid: true };
+}
 
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
@@ -105,6 +130,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (header.type === 'approval-process') {
       if (!header.webhook_url) {
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // SSRF check
+      const { isValid, error } = validateWebhookUrl(header.webhook_url);
+      if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
+        return new Response(JSON.stringify({ error }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
