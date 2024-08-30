@@ -21,6 +21,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     let isAuthorized = false;
     let userEmail: string | undefined;
+    let usedAccessToken: string | undefined;
 
     // Check for access_token in the header
     const accessToken = request.headers.get('Authorization')?.replace('Bearer ', '');
@@ -29,6 +30,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       const storedToken = await locals.runtime.env.KV.get(`approval_token:${approvalId}`);
       if (storedToken && storedToken === accessToken) {
         isAuthorized = true;
+        usedAccessToken = accessToken;
       }
     }
 
@@ -105,6 +107,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
         approvalId: updatedApproval.id,
         state: updatedApproval.state,
       });
+    }
+
+    // Revoke the access token if it was used
+    if (usedAccessToken) {
+      try {
+        await locals.runtime.env.KV.delete(`approval_token:${approvalId}`);
+      } catch (deleteError) {
+        // Log the error but continue execution
+        console.warn('Failed to delete access token, it will expire naturally:', deleteError);
+      }
     }
 
     return new Response(
