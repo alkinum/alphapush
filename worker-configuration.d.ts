@@ -2,5 +2,6 @@
 // by running `wrangler types`
 
 interface Env {
-	DB: D1Database;
+  DB: D1Database;
+  KV: KVNamespace;
 }

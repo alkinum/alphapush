@@ -42,7 +42,9 @@ AlphaPush is a general-purpose push notification service with a PWA client, base
    npm install
    ```
 
-3. Create a `.env` file in the root directory with the following variables:
+3. Create an OAuth application in your GitHub account and get the client ID and client secret.
+
+4. Create a `.env` file in the root directory with the following variables:
 
    ```
    GITHUB_CLIENT_ID=your_github_client_id
@@ -65,28 +67,30 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
    wrangler d1 create alphapush-prod
    ```
 
-3. Note the database ID from the output and add it to your `.env` file:
+3. Apply migrations to your production database:
+
+   ```
+   npm run db:migrate:prod
+   ```
+
+4. Create a KV namespace:
+
+   ```
+   wrangler kv:namespace create alphapush
+   ```
+
+5. Setup the environment variables:
 
    ```
    DB_ID=your_database_id
    ```
 
-4. Generate the database schema:
+6. Setup `wrangler.toml` with the following content:
 
-   ```
-   npm run db:generate
-   ```
-
-5. Apply migrations to your local development database:
-
-   ```
-   npm run db:migrate:local
-   ```
-
-6. Apply migrations to your production database:
-
-   ```
-   npm run db:migrate:prod
+   ```toml
+   kv_namespaces = [
+     { binding = "KV", id = "your_kv_namespace_id" }
+   ]
    ```
 
 ### Development
@@ -116,6 +120,20 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 ### AI-Assisted Development
 
 This project utilizes AI-generated code to enhance development efficiency. We leverage advanced language models to assist with code generation, problem-solving, and optimization. While AI contributes to our development process, all code is reviewed and validated by human developers to ensure quality and reliability.
+
+For information about upcoming features and our development roadmap, see the [Roadmap](#roadmap) section below.
+
+## Roadmap
+
+### Future Plans
+
+- Add email authentication method
+- Allow to filter notifications by category
+- Add TTL (Time To Live) option for notifications
+- Enable pushing encrypted notifications
+- Implement a settings panel for users to reset push token and VAPID keys
+
+For more detailed information about our development plans and progress, please check our [full roadmap](./Roadmap.md).
 
 ## License
 

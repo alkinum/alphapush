@@ -68,35 +68,29 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
       controller.enqueue('event: connected\ndata: SSE connection established\n\n');
 
-      let isConnectionClosed = false;
-
-      const heartbeatInterval = setInterval(() => {
-        if (isConnectionClosed || controller.desiredSize === null) {
-          clearInterval(heartbeatInterval);
-          return;
-        }
-        try {
-          // Check if the controller is closed
-          if (controller.desiredSize !== null) {
-            controller.enqueue(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`);
-          } else {
-            throw new Error('Controller is closed');
-          }
-        } catch (error) {
-          console.error('Error sending heartbeat:', error);
-          clearInterval(heartbeatInterval);
-          isConnectionClosed = true;
-          clients.get(userEmail)?.delete(controller);
-        }
-      }, 30000);
-
-      return () => {
-        isConnectionClosed = true;
+      const cleanup = () => {
         clearInterval(heartbeatInterval);
         clients.get(userEmail)?.delete(controller);
         if (clients.get(userEmail)?.size === 0) {
           clients.delete(userEmail);
         }
+      };
+
+      const heartbeatInterval = setInterval(() => {
+        if (controller.desiredSize === null) {
+          cleanup();
+          return;
+        }
+        try {
+          controller.enqueue(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`);
+        } catch (error) {
+          console.debug('Error sending heartbeat:', error);
+          cleanup();
+        }
+      }, 30 * 1000);
+
+      return () => {
+        cleanup();
       };
     },
   });

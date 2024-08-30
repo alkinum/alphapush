@@ -1,11 +1,16 @@
 import type { APIRoute } from 'astro';
 import { eq } from 'drizzle-orm';
+import type { PushSubscription } from '@block65/webcrypto-web-push';
+import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
 import { userCredentials, pushNotifications, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
-import type { PushSubscription } from '@block65/webcrypto-web-push';
-import { sendSSEvent } from './stream';
 import { SubscriptionService } from '@/services/subscriptionService';
+import { ApprovalProcessService } from '@/services/approvalProcessService';
+import type { Notification } from '@/types/notification';
+import { isLocalNetworkUrl } from '@/utils/network';
+
+import { sendSSEvent } from './stream';
 
 interface PushBody {
   pushToken: string;
@@ -13,6 +18,8 @@ interface PushBody {
 }
 
 type MarkdownHeader = Record<string, string>;
+
+const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
 
 function parseMarkdownHeader(content: string): MarkdownHeader {
   const trimmedContent = content.trim();
@@ -33,7 +40,28 @@ function parseMarkdownHeader(content: string): MarkdownHeader {
   return result;
 }
 
-const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
+/**
+ * Checks if a webhook URL is valid and not a local network URL.
+ * @param url The webhook URL to check
+ * @returns An object with a boolean indicating if the URL is valid and a possible error message
+ */
+export function validateWebhookUrl(url: string): { isValid: boolean; error?: string } {
+  if (!url) {
+    return { isValid: false, error: 'Webhook URL is required' };
+  }
+
+  try {
+    new URL(url);
+  } catch (error) {
+    return { isValid: false, error: 'Invalid URL format' };
+  }
+
+  if (isLocalNetworkUrl(url)) {
+    return { isValid: false, error: 'Local network URLs are not allowed for webhooks' };
+  }
+
+  return { isValid: true };
+}
 
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
@@ -47,6 +75,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const db = getDb(locals.runtime.env.DB);
+    const approvalProcessService = new ApprovalProcessService(db);
 
     const user = await db.select().from(userCredentials).where(eq(userCredentials.pushToken, body.pushToken)).get();
     if (!user) {
@@ -84,9 +113,58 @@ export const POST: APIRoute = async ({ request, locals }) => {
       group: header.group,
       userEmail: user.email,
       iconUrl: header.icon_url,
+      type: header.type,
     };
 
-    const notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+    let notification: Notification | undefined;
+    let approvalId: string | undefined;
+    let tempAccessToken: string | undefined;
+
+    // Insert notification
+    notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+
+    if (!notification) {
+      throw new Error('Failed to create notification');
+    }
+
+    if (header.type === 'approval-process') {
+      if (!header.webhook_url) {
+        return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // SSRF check
+      const { isValid, error } = validateWebhookUrl(header.webhook_url);
+      if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
+        return new Response(JSON.stringify({ error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Insert approval process
+      const approvalProcess = await approvalProcessService.addApprovalProcess({
+        notificationId: notification.id,
+        webhookUrl: header.webhook_url,
+        userEmail: user.email,
+      });
+
+      if (!approvalProcess) {
+        throw new Error('Failed to create approval process');
+      }
+
+      approvalId = approvalProcess.id;
+
+      // Generate and store temporary access token
+      tempAccessToken = createId();
+      await locals.runtime.env.KV.put(
+        `approval_token:${approvalId}`,
+        tempAccessToken,
+        { expirationTtl: 300 }, // 5 minutes in seconds
+      );
+    }
 
     const userSubscriptions = await db
       .select()
@@ -114,6 +192,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       category: notification.category,
       group: notification.group,
       iconUrl: notification.iconUrl,
+      type: notification.type,
+      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalId: approvalId,
+      tempAccessToken: tempAccessToken,
+      createdAt: Date.now(),
     });
 
     // Check message size
@@ -157,13 +240,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     sendSSEvent(user.email, 'newNotification', {
-      id: notification.id,
-      title: notification.title,
-      content: notification.content,
-      category: notification.category,
-      group: notification.group,
-      createdAt: notification.createdAt,
-      iconUrl: notification.iconUrl,
+      ...notification,
+      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalId: approvalId,
     });
 
     if (failedPushes.length > 0) {
@@ -180,7 +259,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
       );
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    const responseData: {
+      success: boolean;
+      notificationId: string;
+      approvalId?: string;
+    } = {
+      success: true,
+      notificationId: notification.id,
+    };
+
+    if (header.type === 'approval-process' && approvalId) {
+      responseData.approvalId = approvalId;
+    }
+
+    return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });

@@ -38,8 +38,8 @@ const isMobile = isMobileDevice(userAgent);
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   </head>
-  <body class="min-h-screen" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
-    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen">
+  <body class="min-h-screen overflow-x-hidden" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
+    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />
       <main class="w-full">
         <EnhanceExperienceAlert isMobile={isMobile} client:load />
@@ -129,22 +129,52 @@ const isMobile = isMobileDevice(userAgent);
 
             deviceFingerprint = await getCombinedFingerprint(userEmail);
 
-            const response = await fetch('/api/subscription', {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ subscription, deviceFingerprint }),
-            });
+            const maxRetries = 3;
+            let retries = 0;
+            let success = false;
 
-            if (!response.ok) {
-              throw new Error('Failed to update subscription on server');
+            while (retries < maxRetries && !success) {
+              try {
+                const response = await fetch('/api/subscription', {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ subscription, deviceFingerprint }),
+                });
+
+                if (!response.ok) {
+                  throw new Error('Failed to update subscription on server');
+                }
+
+                success = true;
+              } catch (error) {
+                retries++;
+                if (retries >= maxRetries) {
+                  throw error;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retries)));
+              }
+            }
+
+            if (!success) {
+              // Cancel the subscription
+              await subscription.unsubscribe();
+              throw new Error('Failed to update subscription after multiple attempts');
             }
           } catch (error) {
             console.error('Web Push subscription failed:', error);
+            // Cancel the subscription if it exists
+            const registration = await navigator.serviceWorker.ready;
+            const subscription = await registration.pushManager.getSubscription();
+            if (subscription) {
+              await subscription.unsubscribe();
+            }
+
+            // Show error toast
             toast({
               title: 'Error',
-              description: 'Push subscription failed. Please check your browser settings and try again.',
+              description: 'Push subscription failed. Please reload the app and try again.',
               variant: 'destructive',
             });
           }
@@ -257,7 +287,12 @@ const isMobile = isMobileDevice(userAgent);
       }
 
       // Check if user is logged in
-      if (document.querySelector('[data-user-logged-in]')) {
+      const isLoggedIn = document.body.hasAttribute('data-user-logged-in');
+
+      if (!isLoggedIn) {
+        localStorage.removeItem('vapidPublicKey');
+        localStorage.removeItem('pushToken');
+      } else {
         console.debug('Starting to initialize web push...');
         initializeWebPush();
       }
@@ -291,7 +326,10 @@ const isMobile = isMobileDevice(userAgent);
 
       // Listen for logout event
       document.addEventListener('logout', async () => {
+        // Delete user related localstoarge items
         localStorage.removeItem('vapidPublicKey');
+        localStorage.removeItem('pushToken');
+
         await unsubscribeWebPush();
         signOut().then(() => {
           window.location.reload();

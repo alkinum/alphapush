@@ -1,10 +1,17 @@
 import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
-import { eq } from 'drizzle-orm';
+import { PushTokenService } from '@/services/pushTokenService';
 
-import { getDb } from '@/db';
-import { userCredentials } from '@/schema';
-import { generatePushToken } from '@/utils/vapid-helper';
+async function ensurePushToken(pushTokenService: PushTokenService, userEmail: string): Promise<string> {
+  let pushToken = await pushTokenService.getPushToken(userEmail);
+  if (!pushToken) {
+    pushToken = await pushTokenService.resetPushToken(userEmail);
+    if (!pushToken) {
+      throw new Error('Failed to generate push token');
+    }
+  }
+  return pushToken;
+}
 
 export const GET: APIRoute = async ({ request, locals }) => {
   try {
@@ -17,18 +24,11 @@ export const GET: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const db = getDb(locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(locals.runtime.env.DB);
 
-    const userCreds = await db.select().from(userCredentials).where(eq(userCredentials.email, userEmail)).get();
+    const pushToken = await ensurePushToken(pushTokenService, userEmail);
 
-    if (!userCreds) {
-      return new Response(JSON.stringify({ error: 'User not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    return new Response(JSON.stringify({ pushToken: userCreds.pushToken }), {
+    return new Response(JSON.stringify({ pushToken }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -52,30 +52,26 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const db = getDb(locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(locals.runtime.env.DB);
 
-    const body = (await request.json()) as { oldPushToken?: string };
-    const { oldPushToken } = body;
+    const body = await request.json();
+    const { action } = body as { action?: string };
 
-    if (!oldPushToken) {
-      return new Response(JSON.stringify({ error: 'Old push token is required' }), {
+    if (action !== 'reset') {
+      return new Response(JSON.stringify({ error: 'Invalid action' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    const userCreds = await db.select().from(userCredentials).where(eq(userCredentials.email, userEmail)).get();
+    const newPushToken = await pushTokenService.resetPushToken(userEmail);
 
-    if (!userCreds || userCreds.pushToken !== oldPushToken) {
-      return new Response(JSON.stringify({ error: 'Invalid old push token' }), {
-        status: 400,
+    if (!newPushToken) {
+      return new Response(JSON.stringify({ error: 'Failed to reset push token' }), {
+        status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }
-
-    const newPushToken = generatePushToken();
-
-    await db.update(userCredentials).set({ pushToken: newPushToken }).where(eq(userCredentials.email, userEmail)).run();
 
     return new Response(JSON.stringify({ pushToken: newPushToken }), {
       status: 200,
