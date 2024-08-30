@@ -257,7 +257,7 @@ const isMobile = isMobileDevice(userAgent);
       }
 
       // Check if user is logged in
-      const isLoggedIn = document.body.getAttribute('data-user-logged-in') === 'true';
+      const isLoggedIn = document.body.hasAttribute('data-user-logged-in');
 
       if (!isLoggedIn) {
         localStorage.removeItem('vapidPublicKey');
