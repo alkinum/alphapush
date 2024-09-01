@@ -1,5 +1,5 @@
 import { customAlphabet } from 'nanoid';
-import crypto from 'node:crypto';
+import { encodeBase64Url } from './base64';
 
 interface UserCredentials {
   publicKey: string;
@@ -9,37 +9,28 @@ interface UserCredentials {
 
 const generateToken = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 16);
 
-function generateVAPIDKeys() {
-  const curve = crypto.createECDH('prime256v1');
-  curve.generateKeys();
+async function generateVAPIDKeys() {
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: 'ECDSA',
+      namedCurve: 'P-256',
+    },
+    true,
+    ['sign', 'verify'],
+  );
 
-  let publicKeyBuffer = curve.getPublicKey();
-  let privateKeyBuffer = curve.getPrivateKey();
-
-  // Occassionally the keys will not be padded to the correct lengh resulting
-  // in errors, hence this padding.
-  // See https://github.com/web-push-libs/web-push/issues/295 for history.
-  if (privateKeyBuffer.length < 32) {
-    const padding = Buffer.alloc(32 - privateKeyBuffer.length);
-    padding.fill(0);
-    privateKeyBuffer = Buffer.concat([padding, privateKeyBuffer]);
-  }
-
-  if (publicKeyBuffer.length < 65) {
-    const padding = Buffer.alloc(65 - publicKeyBuffer.length);
-    padding.fill(0);
-    publicKeyBuffer = Buffer.concat([padding, publicKeyBuffer]);
-  }
+  const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+  const privateKey = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
 
   return {
-    publicKey: publicKeyBuffer.toString('base64url'),
-    privateKey: privateKeyBuffer.toString('base64url'),
+    publicKey: encodeBase64Url(publicKey),
+    privateKey: privateKey.d ?? '',
   };
 }
 
 async function generateUserCredentials(): Promise<UserCredentials> {
   return {
-    ...generateVAPIDKeys(),
+    ...(await generateVAPIDKeys()),
     pushToken: generatePushToken(),
   };
 }
