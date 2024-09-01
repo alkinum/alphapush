@@ -106,6 +106,35 @@ const resetVapidKeys = async () => {
         title: 'Success',
         description: 'VAPID keys have been reset. Resubscribing to notifications...',
       });
+
+      try {
+        await Promise.race([
+          new Promise((resolve) => {
+            const subscriptionSuccessHandler = () => {
+              document.removeEventListener('subscriptionSuccess', subscriptionSuccessHandler);
+              resolve(null);
+            };
+            document.addEventListener('subscriptionSuccess', subscriptionSuccessHandler);
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Subscription timeout')), 10000)),
+        ]);
+
+        toast({
+          title: 'Subscription Successful',
+          description: 'You have successfully resubscribed to notifications with new VAPID keys.',
+        });
+      } catch (subscriptionError: unknown) {
+        if (subscriptionError instanceof Error && subscriptionError.message === 'Subscription timeout') {
+          console.warn('Subscription process timed out');
+          toast({
+            title: 'Warning',
+            description: 'Resubscription process is taking longer than expected. It may complete in the background.',
+            variant: 'warning',
+          });
+        } else {
+          throw subscriptionError;
+        }
+      }
     } else {
       throw new Error('Reset failed');
     }
