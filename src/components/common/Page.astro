@@ -272,15 +272,18 @@ const isMobile = isMobileDevice(userAgent);
         }
       }
 
-      async function initializeWebPush() {
+      async function initializeWebPush(newPublicKey?: string) {
         const permissionGranted = await requestNotificationPermission();
         if (!permissionGranted) {
           return;
         }
 
-        if (!vapidPublicKey) {
+        if (newPublicKey) {
+          vapidPublicKey = newPublicKey;
+        } else if (!vapidPublicKey) {
           vapidPublicKey = await getVapidKey();
         }
+
         if (vapidPublicKey) {
           await subscribeWebPush(vapidPublicKey);
         }
@@ -365,6 +368,13 @@ const isMobile = isMobileDevice(userAgent);
             alertElement.classList.add('hidden');
           }
         }
+      });
+
+      // Listen for VAPID keys reset event
+      document.addEventListener('vapidKeysReset', async (event) => {
+        const { newPublicKey } = (event as CustomEvent).detail;
+        console.debug('VAPID keys reset, reinitializing web push...');
+        await initializeWebPush(newPublicKey);
       });
     </script>
   </body>

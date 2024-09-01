@@ -48,3 +48,56 @@ export const GET: APIRoute = async ({ request, locals }) => {
     });
   }
 };
+
+export const POST: APIRoute = async ({ request, locals }) => {
+  try {
+    const session = await getSession(request);
+    if (!session?.user?.email) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userEmail = session.user.email;
+    const db = getDb(locals.runtime.env.DB);
+
+    const body = await request.json();
+    const { action } = body as { action?: string };
+
+    if (action !== 'reset') {
+      return new Response(JSON.stringify({ error: 'Invalid action' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { publicKey, privateKey } = await generateUserCredentials();
+
+    const updatedUser = await db
+      .update(userCredentials)
+      .set({
+        publicKey,
+        privateKey,
+        updatedAt: new Date(),
+      })
+      .where(eq(userCredentials.email, userEmail))
+      .returning()
+      .get();
+
+    if (!updatedUser) {
+      throw new Error('Failed to update user credentials');
+    }
+
+    return new Response(JSON.stringify({ publicKey: updatedUser.publicKey }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error while resetting VAPID keys:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};

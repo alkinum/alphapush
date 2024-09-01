@@ -18,6 +18,12 @@
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator v-if="localPushToken" />
+        <DropdownMenuItem @click="openUserSettings">
+          <span class="text-xs">User Settings</span>
+          <DropdownMenuShortcut>
+            <Icon icon="mdi:cog" class="h-3 w-3" />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem @click="handleLogout">
           <span class="text-xs">Log Out</span>
           <DropdownMenuShortcut>
@@ -26,11 +32,12 @@
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <UserSettings ref="userSettingsRef" :initial-push-token="localPushToken" :user-info="props.userInfo" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -42,6 +49,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@iconify/vue';
 import { useToast } from '@/components/ui/toast';
+import UserSettings from './UserSettings.vue';
 
 interface UserInfo {
   email: string;
@@ -54,6 +62,7 @@ const props = defineProps<{
 }>();
 
 const localPushToken = ref(props.userInfo.pushToken);
+const userSettingsRef = ref<InstanceType<typeof UserSettings> | null>(null);
 
 const displayName = computed(() => {
   if (props.userInfo.nickname) {
@@ -101,6 +110,12 @@ const copyPushToken = () => {
   }
 };
 
+const openUserSettings = () => {
+  if (userSettingsRef.value) {
+    userSettingsRef.value.openSettings();
+  }
+};
+
 const handleNewPushToken = (event: CustomEvent<{ pushToken: string }>) => {
   localPushToken.value = event.detail.pushToken;
 };
@@ -111,5 +126,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('newPushToken', handleNewPushToken as EventListener);
+});
+
+// Watch for changes in the userInfo prop
+watch(() => props.userInfo.pushToken, (newToken) => {
+  if (newToken !== undefined) {
+    localPushToken.value = newToken;
+  }
 });
 </script>
