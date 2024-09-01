@@ -4,22 +4,19 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
 
-const clients = new Map<string, Set<ReadableStreamDefaultController>>();
+const clients = new Map<string, Set<WritableStreamDefaultWriter<Uint8Array>>>();
 
 export function sendSSEvent(userEmail: string, event: string, data: any) {
   const userClients = clients.get(userEmail);
   if (userClients) {
-    userClients.forEach((controller) => {
-      if (controller.desiredSize !== null) {
-        try {
-          controller.enqueue(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        } catch (error) {
-          console.error('Error sending SSE event:', error);
-          if (controller.desiredSize === null) {
-            userClients.delete(controller);
-          }
-        }
-      }
+    const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const encoder = new TextEncoder();
+    userClients.forEach((writer) => {
+      writer.write(encoder.encode(message)).catch((error) => {
+        console.error('Error sending SSE event:', error);
+        userClients.delete(writer);
+        writer.close().catch(console.error);
+      });
     });
   }
 }
@@ -59,43 +56,56 @@ export const GET: APIRoute = async ({ request, locals }) => {
     });
   }
 
-  const stream = new ReadableStream({
-    start(controller) {
-      if (!clients.has(userEmail)) {
-        clients.set(userEmail, new Set());
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  if (!clients.has(userEmail)) {
+    clients.set(userEmail, new Set());
+  }
+  clients.get(userEmail)!.add(writer);
+
+  writer.write(encoder.encode('event: connected\ndata: SSE connection established\n\n'));
+
+  const cleanup = async () => {
+    clearInterval(heartbeatInterval);
+    clients.get(userEmail)?.delete(writer);
+    if (clients.get(userEmail)?.size === 0) {
+      clients.delete(userEmail);
+    }
+    try {
+      if (await writer.closed) {
+        writer.close().catch(console.error);
       }
-      clients.get(userEmail)!.add(controller);
+    } catch {
+      // do nothing
+    }
+  };
 
-      controller.enqueue('event: connected\ndata: SSE connection established\n\n');
-
-      const cleanup = () => {
-        clearInterval(heartbeatInterval);
-        clients.get(userEmail)?.delete(controller);
-        if (clients.get(userEmail)?.size === 0) {
-          clients.delete(userEmail);
-        }
-      };
-
-      const heartbeatInterval = setInterval(() => {
-        if (controller.desiredSize === null) {
-          cleanup();
-          return;
-        }
-        try {
-          controller.enqueue(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`);
-        } catch (error) {
-          console.debug('Error sending heartbeat:', error);
+  const heartbeatInterval = setInterval(async () => {
+    try {
+      try {
+        if (await writer.closed) {
           cleanup();
         }
-      }, 30 * 1000);
+      } catch {
+        // do nothing
+      }
+      await writer.ready;
+      await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
+    } catch (error) {
+      console.debug('Error sending heartbeat:', error);
+      cleanup();
+    }
+  }, 30 * 1000);
 
-      return () => {
-        cleanup();
-      };
-    },
+  writer.closed.then(() => {
+    cleanup();
   });
 
-  return new Response(stream, {
+  request.signal.addEventListener('abort', cleanup);
+
+  return new Response(readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
