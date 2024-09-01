@@ -50,6 +50,7 @@ self.addEventListener('notificationclick', function (event) {
               console.error('Failed to update approval state:', error);
               // If update fails, fall back to opening the details page
               url.searchParams.set('approvalId', notificationData.approvalId);
+              url.searchParams.set('action', event.action); // Add action to URL
               clients.openWindow(url.toString());
             }),
         );
@@ -59,6 +60,7 @@ self.addEventListener('notificationclick', function (event) {
 
     // Token is expired or nearly expired, or action is 'detail'
     url.searchParams.set('approvalId', notificationData.approvalId);
+    url.searchParams.set('action', event.action); // Add action to URL
   }
 
   if (event.action === 'detail' || !event.action) {
@@ -83,7 +85,7 @@ async function updateApprovalState(approvalId, action, token) {
   });
 
   if (!response.ok) {
-    throw new Error('Failed to update approval state');
+    throw response;
   }
 
   return response.json();

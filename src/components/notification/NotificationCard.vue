@@ -125,24 +125,21 @@ const updateApprovalState = async (state: 'approved' | 'rejected') => {
 
     if (response.ok) {
       approvalState.value = state;
-      toast({
-        title: 'Approval State Updated',
-        description: `The approval has been ${state}.`,
-      });
     } else {
-      throw new Error('Failed to update approval state');
+      const errorResponse: { error?: string } = await response.json();
+      throw new Error(errorResponse.error || 'Failed to update approval state');
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating approval state:', error);
     toast({
       title: 'Error',
-      description: 'Failed to update approval state. Please try again.',
+      description: `Failed to update approval state: ${error.message}`,
       variant: 'destructive',
     });
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   if (content.value && content.value.scrollHeight > content.value.clientHeight) {
@@ -171,6 +168,25 @@ onMounted(() => {
         }
       },
     });
+  }
+
+  // Check for approvalId and action in query parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const approvalId = urlParams.get('approvalId');
+  const action = urlParams.get('action')?.toLowerCase();
+
+  try {
+    if (approvalId === props.notification.approvalId && (action === 'approve' || action === 'reject')) {
+      await updateApprovalState(action === 'approve' ? 'approved' : 'rejected');
+    }
+  } catch (error) {
+    console.error('Error processing approval action:', error);
+  } finally {
+    // Remove approvalId and action from query parameters
+    const url = new URL(window.location.href);
+    url.searchParams.delete('approvalId');
+    url.searchParams.delete('action');
+    window.history.replaceState({}, '', url);
   }
 });
 </script>

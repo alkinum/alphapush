@@ -22,6 +22,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     let isAuthorized = false;
     let userEmail: string | undefined;
     let usedAccessToken: string | undefined;
+    let approvalProcess;
 
     // Check for access_token in the header
     const accessToken = request.headers.get('Authorization')?.replace('Bearer ', '');
@@ -31,6 +32,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       if (storedToken && storedToken === accessToken) {
         isAuthorized = true;
         usedAccessToken = accessToken;
+        approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
       }
     }
 
@@ -46,7 +48,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
 
       // Fetch the approval process and check if it belongs to the user
-      const approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
+      approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
       if (!approvalProcess || approvalProcess.userEmail !== userEmail) {
         return new Response(JSON.stringify({ error: 'Approval process not found or not authorized' }), {
           status: 404,
@@ -57,9 +59,42 @@ export const POST: APIRoute = async ({ request, locals }) => {
       isAuthorized = true;
     }
 
-    if (!isAuthorized) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
+    // Validate if approvalProcess is still undefined
+    if (!approvalProcess) {
+      return new Response(JSON.stringify({ error: 'Approval process not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Call the webhook
+    const webhookPayload = {
+      notificationId: approvalId,
+      approvalId,
+      state,
+    };
+
+    let webhookResponse;
+    try {
+      webhookResponse = await fetch(approvalProcess.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(webhookPayload),
+      });
+
+      if (!webhookResponse.ok) {
+        console.error('Webhook call failed:', await webhookResponse.text());
+        return new Response(JSON.stringify({ error: 'Webhook call failed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    } catch (fetchError) {
+      console.error('Error calling webhook:', fetchError);
+      return new Response(JSON.stringify({ error: 'Error calling webhook' }), {
+        status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -75,29 +110,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
         });
       }
       throw error;
-    }
-
-    // Call the webhook
-    const webhookPayload = {
-      notificationId: updatedApproval.notificationId,
-      approvalId: updatedApproval.id,
-      state: updatedApproval.state,
-    };
-
-    const webhookResponse = await fetch(updatedApproval.webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(webhookPayload),
-    });
-
-    if (!webhookResponse.ok) {
-      console.error('Webhook call failed:', await webhookResponse.text());
-      return new Response(JSON.stringify({ error: 'Webhook call failed' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
     }
 
     // Send SSE event
