@@ -162,6 +162,9 @@ const isMobile = isMobileDevice(userAgent);
               await subscription.unsubscribe();
               throw new Error('Failed to update subscription after multiple attempts');
             }
+
+            // Dispatch subscription success event
+            document.dispatchEvent(new CustomEvent('subscriptionSuccess'));
           } catch (error) {
             console.error('Web Push subscription failed:', error);
             // Cancel the subscription if it exists
