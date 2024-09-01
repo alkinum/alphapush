@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
-import { eq } from 'drizzle-orm';
 
 const clients = new Map<string, Set<ReadableStreamDefaultController>>();
 
