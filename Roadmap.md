@@ -4,13 +4,15 @@
 
 ### v0.3.0
 
-- [ ] Add email authentication method
-- [ ] In-app end-to-end encrypted communication
+- [ ] User role system.
+- [ ] In-app end-to-end encrypted communication.
 
 ### Future
 
+- [ ] Add email authentication method with invitation code system.
 - [ ] Allow to filter notifications by category.
 - [ ] Allow to add a ttl to the notification.
+- [ ] Configurable logical deletion of notifications.
 
 ## Done
 
