@@ -2,18 +2,21 @@
 
 ## Planned Features
 
-### v0.2.1
+### v0.3.0
 
-- [ ] Allow user to reset the push token and vapid keys in a settings panel.
+- [ ] Add email authentication method
+- [ ] In-app end-to-end encrypted communication
 
 ### Future
 
-- [ ] Add email authentication method
 - [ ] Allow to filter notifications by category.
 - [ ] Allow to add a ttl to the notification.
-- [ ] Allow to push an encrypted notification.
 
 ## Done
+
+### v0.2.1
+
+- [x] Allow user to reset the push token and vapid keys in a settings panel.
 
 ### v0.2.0
 
