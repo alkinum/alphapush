@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { TransitionGroup } from 'vue';
 
 import { Icon } from '@iconify/vue';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Notification } from '@/types/notification';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
@@ -28,14 +29,19 @@ const user = ref(props.session?.user);
 const notifications = ref<Notification[]>(props.initialNotifications);
 const totalPages = ref(props.initialTotalPages);
 const currentPage = ref(1);
-const loading = ref(false);
 const initialLoading = ref(false);
+const isLoading = ref(false);
+const isLoadFailed = ref(false);
+const retryCount = ref(0);
+const maxRetries = 3;
 
 let eventSource: EventSource | null = null;
 
 const fetchNotifications = async (page: number) => {
-  if (loading.value) return;
-  loading.value = true;
+  if (isLoading.value || isLoadFailed.value) {
+    return;
+  }
+  isLoading.value = true;
 
   try {
     const response = await fetch(`/api/notifications?page=${page}&pageSize=10`);
@@ -49,10 +55,16 @@ const fetchNotifications = async (page: number) => {
 
     totalPages.value = data.totalPages || 0;
     currentPage.value = page;
+    isLoadFailed.value = false;
+    retryCount.value = 0;
   } catch (error) {
     console.error('Error fetching notifications:', error);
+    retryCount.value += 1;
+    if (retryCount.value >= maxRetries) {
+      isLoadFailed.value = true;
+    }
   } finally {
-    loading.value = false;
+    isLoading.value = false;
     initialLoading.value = false;
   }
 };
@@ -124,11 +136,17 @@ const handleNewNotification = (newNotification: Notification) => {
   newNotification.isNew = true;
   notifications.value.unshift(newNotification);
   setTimeout(() => {
-    const index = notifications.value.findIndex(n => n.id === newNotification.id);
+    const index = notifications.value.findIndex((n) => n.id === newNotification.id);
     if (index !== -1) {
       notifications.value[index].isNew = false;
     }
   }, 500); // This should match the duration of your animation
+};
+
+const retryFetchNotifications = () => {
+  isLoadFailed.value = false;
+  retryCount.value = 0;
+  fetchNotifications(currentPage.value);
 };
 
 onMounted(() => {
@@ -189,8 +207,12 @@ watch(
             </CardContent>
           </Card>
         </template>
-        <div v-if="loading" class="flex justify-center mt-4">
+        <div v-if="isLoading" class="flex justify-center mt-4">
           <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
+        </div>
+        <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
+          <p class="text-red-500 text-xs">Failed to load notifications. Please try again.</p>
+          <Button class="mt-2" variant="outline" @click="retryFetchNotifications">Retry</Button>
         </div>
       </template>
       <Card v-else>
