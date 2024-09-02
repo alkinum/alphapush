@@ -130,8 +130,6 @@ For information about upcoming features and our development roadmap, see the [Ro
 - Add email authentication method
 - Allow to filter notifications by category
 - Add TTL (Time To Live) option for notifications
-- Enable pushing encrypted notifications
-- Implement a settings panel for users to reset push token and VAPID keys
 
 For more detailed information about our development plans and progress, please check our [full roadmap](./Roadmap.md).
 
