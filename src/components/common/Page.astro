@@ -28,13 +28,13 @@ const isMobile = isMobileDevice(userAgent);
 <html class="dark" lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" type="image/png" href="/icons/icon-192x192.png" />
+    <link rel="icon" type="image/png" href="/icons/favicon.png" />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
     <title>AlphaPush</title>
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#09090B" />
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   </head>
@@ -292,6 +292,9 @@ const isMobile = isMobileDevice(userAgent);
         }
       }
 
+      // Initial check
+      checkNotificationPermission();
+
       // Check if user is logged in
       const isLoggedIn = document.body.hasAttribute('data-user-logged-in');
 
@@ -352,9 +355,6 @@ const isMobile = isMobileDevice(userAgent);
           }
         }
       }
-
-      // Initial check
-      checkNotificationPermission();
 
       // Listen for permission changes
       document.addEventListener('visibilitychange', () => {
