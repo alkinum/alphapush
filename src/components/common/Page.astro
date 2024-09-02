@@ -252,7 +252,18 @@ const isMobile = isMobileDevice(userAgent);
         }
 
         try {
-          const permission = await Notification.requestPermission();
+          let permission: NotificationPermission;
+
+          if (Notification.requestPermission.length === 0) {
+            // Promise version
+            permission = await Notification.requestPermission();
+          } else {
+            // Callback version
+            permission = await new Promise<NotificationPermission>((resolve) => {
+              Notification.requestPermission((result) => resolve(result));
+            });
+          }
+
           if (permission === 'granted') {
             return true;
           } else {
