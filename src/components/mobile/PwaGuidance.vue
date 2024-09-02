@@ -12,14 +12,20 @@ onMounted(() => {
   isIOS.value = /iPad|iPhone|iPod/.test(navigator.userAgent);
   isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-  // Check if already installed as PWA, if it's a mobile device, and if guidance hasn't been shown before
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-  const hasSeenGuidance = localStorage.getItem('hasSeenPWAGuidance');
 
-  if (!isStandalone && isMobile.value && !hasSeenGuidance) {
-    isOpen.value = true;
-    // Mark that the user has seen the guidance
-    localStorage.setItem('hasSeenPWAGuidance', 'true');
+  if (!isStandalone && isMobile.value) {
+    if (isIOS.value) {
+      isOpen.value = true;
+    } else {
+      const lastShownDate = localStorage.getItem('lastPWAGuidanceShown');
+      const currentDate = new Date().getTime();
+
+      if (!lastShownDate || currentDate - parseInt(lastShownDate) > 7 * 24 * 60 * 60 * 1000) {
+        isOpen.value = true;
+        localStorage.setItem('lastPWAGuidanceShown', currentDate.toString());
+      }
+    }
   }
 });
 
