@@ -303,9 +303,6 @@ const isMobile = isMobileDevice(userAgent);
         }
       }
 
-      // Initial check
-      checkNotificationPermission();
-
       // Check if user is logged in
       const isLoggedIn = document.body.hasAttribute('data-user-logged-in');
 
@@ -366,6 +363,9 @@ const isMobile = isMobileDevice(userAgent);
           }
         }
       }
+
+      // Initial check
+      checkNotificationPermission();
 
       // Listen for permission changes
       document.addEventListener('visibilitychange', () => {
