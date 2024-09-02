@@ -1,10 +1,10 @@
 ---
 import { getSession } from 'auth-astro/server';
 import { Toaster } from '@/components/ui/toast';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import PwaGuidance from '@/components/mobile/PwaGuidance.vue';
 import EnhanceExperienceAlert from '@/components/alert/EnhanceExperienceAlert.vue';
 import Header from './Header.astro';
+import NotificationPermissionAlert from '@/components/alert/NotificationPermissionAlert.vue';
 
 import '@/styles/globals.css';
 
@@ -28,13 +28,13 @@ const isMobile = isMobileDevice(userAgent);
 <html class="dark" lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" type="image/png" href="/icons/icon-192x192.png" />
+    <link rel="icon" type="image/png" href="/icons/favicon.png" />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
     <title>AlphaPush</title>
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#09090B" />
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   </head>
@@ -43,14 +43,7 @@ const isMobile = isMobileDevice(userAgent);
       <Header />
       <main class="w-full">
         <EnhanceExperienceAlert isMobile={isMobile} client:load />
-        <div id="notification-permission-alert" class="hidden mb-4">
-          <Alert variant="destructive">
-            <AlertTitle><b>Notification Permission Required</b></AlertTitle>
-            <AlertDescription>
-              App will not work without a notification permission. Please enable notifications in your browser settings.
-            </AlertDescription>
-          </Alert>
-        </div>
+        {isLoggedIn && <NotificationPermissionAlert client:load />}
         <slot />
       </main>
     </div>
@@ -228,56 +221,8 @@ const isMobile = isMobileDevice(userAgent);
         }
       }
 
-      async function requestNotificationPermission(): Promise<boolean> {
-        if (!('Notification' in window)) {
-          toast({
-            title: 'Error',
-            description: 'Your browser does not support notifications.',
-            variant: 'destructive',
-          });
-          return false;
-        }
-
-        if (Notification.permission === 'granted') {
-          return true;
-        }
-
-        if (Notification.permission === 'denied') {
-          toast({
-            title: 'Notification Permission Denied',
-            description: 'Please enable notifications in your browser settings to receive push messages.',
-            variant: 'destructive',
-          });
-          return false;
-        }
-
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            return true;
-          } else {
-            toast({
-              title: 'Notification Permission Denied',
-              description:
-                'You have denied notification permission. To receive push messages, please enable notifications in your browser settings.',
-              variant: 'destructive',
-            });
-            return false;
-          }
-        } catch (error) {
-          console.error('Error requesting notification permission:', error);
-          toast({
-            title: 'Error',
-            description: 'An error occurred while requesting notification permission. Please try again later.',
-            variant: 'destructive',
-          });
-          return false;
-        }
-      }
-
       async function initializeWebPush(newPublicKey?: string) {
-        const permissionGranted = await requestNotificationPermission();
-        if (!permissionGranted) {
+        if (Notification.permission !== 'granted') {
           return;
         }
 
@@ -342,42 +287,15 @@ const isMobile = isMobileDevice(userAgent);
         });
       });
 
-      async function checkNotificationPermission() {
-        const alertElement = document.getElementById('notification-permission-alert');
-        if ('Notification' in window) {
-          if (Notification.permission === 'denied') {
-            alertElement?.classList.remove('hidden');
-          } else {
-            alertElement?.classList.add('hidden');
-          }
-        }
-      }
-
-      // Initial check
-      checkNotificationPermission();
-
-      // Listen for permission changes
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-          checkNotificationPermission();
-        }
-      });
-
-      // Listen for display mode changes
-      window.matchMedia('(display-mode: standalone)').addEventListener('change', (evt) => {
-        if (evt.matches) {
-          const alertElement = document.getElementById('pwa-install-alert');
-          if (alertElement) {
-            alertElement.classList.add('hidden');
-          }
-        }
-      });
-
       // Listen for VAPID keys reset event
       document.addEventListener('vapidKeysReset', async (event) => {
         const { newPublicKey } = (event as CustomEvent).detail;
         console.debug('VAPID keys reset, reinitializing web push...');
         await initializeWebPush(newPublicKey);
+      });
+
+      document.addEventListener('notificationPermissionGranted', () => {
+        initializeWebPush();
       });
     </script>
   </body>

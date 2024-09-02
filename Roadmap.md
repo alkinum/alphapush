@@ -5,7 +5,7 @@
 ### v0.3.0
 
 - [ ] User role system.
-- [ ] In-app end-to-end encrypted communication.
+- [ ] Support pushing end-to-end encrypted notification.
 
 ### Future
 

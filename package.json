@@ -35,7 +35,7 @@
     "@paralleldrive/cuid2": "^2.2.2",
     "@radix-icons/vue": "^1.0.0",
     "@vueuse/gesture": "^2.0.0",
-    "astro": "^4.15.1",
+    "astro": "^4.15.2",
     "auth-astro": "^4.1.2",
     "base64-arraybuffer": "^1.0.2",
     "class-variance-authority": "^0.7.0",
