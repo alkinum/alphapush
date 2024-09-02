@@ -229,7 +229,15 @@ const isMobile = isMobileDevice(userAgent);
       }
 
       async function requestNotificationPermission(): Promise<boolean> {
+        // Check if the device is iOS and not in standalone mode
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+
         if (!('Notification' in window)) {
+          if (isIOS && !isStandalone) {
+            // Skip notification check for iOS devices not in standalone mode
+            return false;
+          }
           toast({
             title: 'Error',
             description: 'Your browser does not support notifications.',
@@ -254,16 +262,14 @@ const isMobile = isMobileDevice(userAgent);
         try {
           let permission: NotificationPermission;
 
-          const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-          if (isSafari || typeof Notification.requestPermission !== 'function') {
-            // Callback version (for Safari and older browsers)
+          if (Notification.requestPermission.length === 0) {
+            // Promise version
+            permission = await Notification.requestPermission();
+          } else {
+            // Callback version
             permission = await new Promise<NotificationPermission>((resolve) => {
               Notification.requestPermission((result) => resolve(result));
             });
-          } else {
-            // Promise version (for modern browsers)
-            permission = await Notification.requestPermission();
           }
 
           if (permission === 'granted') {
@@ -357,6 +363,16 @@ const isMobile = isMobileDevice(userAgent);
 
       async function checkNotificationPermission() {
         const alertElement = document.getElementById('notification-permission-alert');
+        // Check if the device is iOS and not in standalone mode
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+
+        if (isIOS && !isStandalone) {
+          // Remove the alert element for iOS devices not in standalone mode
+          alertElement?.parentNode?.removeChild(alertElement);
+          return;
+        }
+
         if ('Notification' in window && alertElement) {
           if (Notification.permission === 'denied') {
             alertElement?.classList.remove('hidden');
