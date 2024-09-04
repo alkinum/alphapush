@@ -15,7 +15,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { setMasterKey, getMasterKey } from '@/utils/encryption';
 
 const { toast } = useToast();
 
@@ -50,9 +53,16 @@ const userInitials = computed(() => {
   return name.slice(0, 2).toUpperCase();
 });
 
-onMounted(() => {
+const masterKey = ref('');
+const showMasterKey = ref(false);
+
+onMounted(async () => {
   pushToken.value = props.initialPushToken;
   vapidPublicKey.value = localStorage.getItem('vapidPublicKey');
+  const existingMasterKey = await getMasterKey();
+  if (existingMasterKey) {
+    masterKey.value = existingMasterKey;
+  }
 });
 
 const copyPushToken = () => {
@@ -180,6 +190,23 @@ const resetPushToken = async () => {
   showResetPushTokenDialog.value = false;
 };
 
+const saveMasterKey = async () => {
+  try {
+    await setMasterKey(masterKey.value || null);
+    toast({
+      title: 'Success',
+      description: masterKey.value ? 'Encryption key has been set.' : 'Encryption key has been removed.',
+    });
+  } catch (error) {
+    console.error('Error setting encryption key:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to set encryption key. Please try again.',
+      variant: 'destructive',
+    });
+  }
+};
+
 const openSettings = () => {
   isOpen.value = true;
 };
@@ -192,7 +219,7 @@ defineExpose({ openSettings });
     <SheetContent>
       <SheetHeader>
         <SheetTitle>User Settings</SheetTitle>
-        <SheetDescription> Manage your account and push notification settings. </SheetDescription>
+        <SheetDescription> Manage your account, push notification settings, and security. </SheetDescription>
       </SheetHeader>
       <div class="grid gap-4 py-4">
         <Card>
@@ -224,6 +251,39 @@ defineExpose({ openSettings });
               <Button @click="copyPushToken" variant="outline" size="icon" :disabled="!pushToken">
                 <Icon icon="mdi:content-copy" class="h-4 w-4" />
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>End-to-End Encryption Key</CardTitle>
+          </CardHeader>
+          <CardContent :class="cn('pt-0 space-y-4')">
+            <div class="space-y-2">
+              <Label for="masterKey">Encryption Key</Label>
+              <div class="flex space-x-2">
+                <Input
+                  id="masterKey"
+                  v-model="masterKey"
+                  :type="showMasterKey ? 'text' : 'password'"
+                  placeholder="Enter encryption key"
+                />
+                <Button @click="showMasterKey = !showMasterKey" variant="outline" size="icon">
+                  <Icon :icon="showMasterKey ? 'mdi:eye' : 'mdi:eye-off'" class="h-4 w-4" />
+                </Button>
+                <Button @click="saveMasterKey" variant="outline" size="icon">
+                  <Icon icon="mdi:content-save" class="h-4 w-4" />
+                </Button>
+              </div>
+              <div class="space-y-1">
+                <p class="text-sm text-muted-foreground">
+                  This key is used for end-to-end encryption in the push service. Make sure it matches the key used by
+                  your push source.
+                </p>
+                <p class="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                  Warning: If the key is incorrect, all encrypted notifications will fail to decrypt.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

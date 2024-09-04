@@ -1,0 +1,39 @@
+{
+  "name": "@alkinum/alphapush-encryption",
+  "version": "0.1.0",
+  "description": "End to end encryption for AlphaPush",
+  "main": "dist/encryption.umd.js",
+  "module": "dist/encryption.esm.js",
+  "typings": "dist/types/main.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "watch": "cross-env NODE_ENV=dev rollup -c rollup.config.mjs -w",
+    "build": "rimraf ./dist && tsc && cross-env NODE_ENV=production rollup -c rollup.config.mjs && rimraf ./dist/lib",
+    "lint": "eslint ./src/**/*"
+  },
+  "author": "BackRunner",
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^26.0.1",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@types/node": "^20.16.4",
+    "@typescript-eslint/eslint-plugin": "^8.4.0",
+    "@typescript-eslint/parser": "^8.4.0",
+    "cross-env": "^7.0.3",
+    "eslint": "^8.57.0",
+    "eslint-config-alloy": "^5.1.2",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.30.0",
+    "prettier": "^3.3.3",
+    "rimraf": "^6.0.1",
+    "rollup": "^4.21.2",
+    "rollup-plugin-filesize": "^10.0.0",
+    "tslib": "^2.7.0",
+    "typescript": "^5.5.4"
+  }
+}
