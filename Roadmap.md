@@ -13,6 +13,7 @@
 - [ ] Allow to filter notifications by category.
 - [ ] Allow to add a ttl to the notification.
 - [ ] Configurable logical deletion of notifications.
+- [ ] Add API Token system.
 
 ## Done
 

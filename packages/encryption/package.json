@@ -2,9 +2,9 @@
   "name": "@alkinum/alphapush-encryption",
   "version": "0.1.0",
   "description": "End to end encryption for AlphaPush",
-  "main": "dist/encryption.umd.js",
-  "module": "dist/encryption.esm.js",
-  "typings": "dist/types/main.d.ts",
+  "main": "dist/encryption.js",
+  "typings": "dist/types/index.d.ts",
+  "type": "module",
   "files": [
     "dist"
   ],

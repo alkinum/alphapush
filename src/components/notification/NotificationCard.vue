@@ -4,6 +4,7 @@ import hljs from 'highlight.js';
 import { marked } from 'marked';
 import { useSwipe } from '@vueuse/core';
 import { Icon } from '@iconify/vue';
+import { decrypt } from '@alkinum/alphapush-encryption';
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import 'highlight.js/styles/github-dark.css';
 
 interface Props {
   notification: Notification & { highlight?: boolean; isDeleting?: boolean; isNew?: boolean };
+  encryptionKey?: string;
 }
 
 const props = defineProps<Props>();
@@ -51,7 +53,21 @@ renderer.code = ({ text, lang }) => {
   return `<div class="code-block">${highlightedCode}</div>`;
 };
 
-const renderedContent = marked(props.notification.content, { renderer });
+const decryptedContent = ref<string | null>(null);
+const decryptionError = ref<string | null>(null);
+
+const renderedContent = computed(() => {
+  if (props.notification.type === 'encrypted') {
+    if (decryptionError.value) {
+      return `<p class="text-red-500">Decryption failed: ${decryptionError.value}</p>`;
+    }
+    if (decryptedContent.value === null) {
+      return '<p>Decrypting content...</p>';
+    }
+    return marked(decryptedContent.value, { renderer });
+  }
+  return marked(props.notification.content, { renderer });
+});
 
 const contentLength = computed(() => props.notification.content.length);
 const isLikelyTruncated = computed(() => contentLength.value > 650);
@@ -187,6 +203,21 @@ onMounted(async () => {
     url.searchParams.delete('approvalId');
     url.searchParams.delete('action');
     window.history.replaceState({}, '', url);
+  }
+
+  if (props.notification.type === 'encrypted' && props.encryptionKey) {
+    try {
+      const extraInfo = props.notification.extraInfo ? JSON.parse(props.notification.extraInfo) : {};
+      const nonce = extraInfo.nonce;
+      if (!nonce) {
+        throw new Error('Nonce not found in extra info');
+      }
+      const decrypted = await decrypt(props.notification.content, props.encryptionKey, nonce);
+      decryptedContent.value = decrypted;
+    } catch (error) {
+      console.error('Decryption failed:', error);
+      decryptionError.value = 'Unable to decrypt content. Please check your encryption key or notification data.';
+    }
   }
 });
 </script>

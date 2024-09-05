@@ -20,10 +20,7 @@ if (process.env.NODE_ENV === 'production') {
 
 export default defineConfig({
   input: `src/index.ts`,
-  output: [
-    { file: pkg.main, name: pkg.name, format: 'umd' },
-    { file: pkg.module, format: 'es' },
-  ],
+  output: [{ file: pkg.main, format: 'es' }],
   external: [],
   watch: {
     include: 'src/**',
