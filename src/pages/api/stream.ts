@@ -4,17 +4,18 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
 
-const clients = new Map<string, Set<WritableStreamDefaultWriter<Uint8Array>>>();
+// Change the clients map to use a nested structure
+const clients = new Map<string, Map<string, WritableStreamDefaultWriter<Uint8Array>>>();
 
 export function sendSSEvent(userEmail: string, event: string, data: any) {
   const userClients = clients.get(userEmail);
   if (userClients) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     const encoder = new TextEncoder();
-    userClients.forEach((writer) => {
+    userClients.forEach((writer, deviceFingerprint) => {
       writer.write(encoder.encode(message)).catch((error) => {
         console.error('Error sending SSE event:', error);
-        userClients.delete(writer);
+        userClients.delete(deviceFingerprint);
         writer.close().catch(console.error);
       });
     });
@@ -61,47 +62,63 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const encoder = new TextEncoder();
 
   if (!clients.has(userEmail)) {
-    clients.set(userEmail, new Set());
+    clients.set(userEmail, new Map());
   }
-  clients.get(userEmail)!.add(writer);
+  const userClients = clients.get(userEmail)!;
+
+  // Close existing connection for this device if it exists
+  const existingWriter = userClients.get(deviceFingerprint);
+  if (existingWriter) {
+    Promise.resolve(existingWriter.closed).then(
+      () => {
+        // Writer is already closed, no action needed
+      },
+      () => {
+        // Writer is not closed, so we close it
+        existingWriter.close().catch(console.error);
+      },
+    );
+  }
+
+  userClients.set(deviceFingerprint, writer);
 
   writer.write(encoder.encode('event: connected\ndata: SSE connection established\n\n'));
 
   const cleanup = async () => {
     clearInterval(heartbeatInterval);
-    clients.get(userEmail)?.delete(writer);
-    if (clients.get(userEmail)?.size === 0) {
-      clients.delete(userEmail);
+    const userClients = clients.get(userEmail);
+    if (userClients) {
+      userClients.delete(deviceFingerprint);
+      if (userClients.size === 0) {
+        clients.delete(userEmail);
+      }
     }
     try {
-      if (await writer.closed) {
-        writer.close().catch(console.error);
-      }
+      // Check if the writer is already closed
+      await writer.closed;
+      // If we reach here, the writer is already closed
     } catch {
-      // do nothing
+      // If the promise rejects, the writer is not closed, so we close it
+      await writer.close().catch(console.error);
     }
   };
 
   const heartbeatInterval = setInterval(async () => {
     try {
-      try {
-        if (await writer.closed) {
-          cleanup();
-        }
-      } catch {
-        // do nothing
-      }
+      // Check if the writer is closed
+      await writer.closed;
+      // If we reach here, the writer is closed, so we clean up
+      await cleanup();
+      return;
+    } catch {
+      // If the promise rejects, the writer is not closed
+      // Wait for the writer to be ready
       await writer.ready;
+
+      // Send the heartbeat
       await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
-    } catch (error) {
-      console.debug('Error sending heartbeat:', error);
-      cleanup();
     }
   }, 30 * 1000);
-
-  writer.closed.then(() => {
-    cleanup();
-  });
 
   request.signal.addEventListener('abort', cleanup);
 

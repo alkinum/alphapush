@@ -5,6 +5,7 @@ import { marked } from 'marked';
 import { useSwipe } from '@vueuse/core';
 import { Icon } from '@iconify/vue';
 import { decrypt } from '@alkinum/alphapush-encryption';
+import { getMasterKey } from '@/utils/encryption';
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,7 +31,6 @@ import 'highlight.js/styles/github-dark.css';
 
 interface Props {
   notification: Notification & { highlight?: boolean; isDeleting?: boolean; isNew?: boolean };
-  encryptionKey?: string;
 }
 
 const props = defineProps<Props>();
@@ -205,14 +205,18 @@ onMounted(async () => {
     window.history.replaceState({}, '', url);
   }
 
-  if (props.notification.type === 'encrypted' && props.encryptionKey) {
+  if (props.notification.type === 'encrypted') {
     try {
+      const masterKey = await getMasterKey();
+      if (!masterKey) {
+        throw new Error('Master key not found');
+      }
       const extraInfo = props.notification.extraInfo ? JSON.parse(props.notification.extraInfo) : {};
       const nonce = extraInfo.nonce;
       if (!nonce) {
         throw new Error('Nonce not found in extra info');
       }
-      const decrypted = await decrypt(props.notification.content, props.encryptionKey, nonce);
+      const decrypted = await decrypt(props.notification.content, masterKey, nonce);
       decryptedContent.value = decrypted;
     } catch (error) {
       console.error('Decryption failed:', error);

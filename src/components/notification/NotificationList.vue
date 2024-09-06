@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
-import { TransitionGroup } from 'vue';
 
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';

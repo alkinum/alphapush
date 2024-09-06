@@ -104,17 +104,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     let extraInfo: Record<string, any> | undefined;
     if (header.extra) {
-      try {
-        extraInfo = JSON.parse(header.extra);
-        if (typeof extraInfo !== 'object' || extraInfo === null || Array.isArray(extraInfo)) {
-          throw new Error('Extra info must be a valid object');
-        }
-      } catch (error) {
-        return new Response(JSON.stringify({ error: 'Invalid extra info format. Must be a valid JSON object' }), {
+      if (typeof header.extra !== 'object' || header.extra === null || Array.isArray(header.extra)) {
+        return new Response(JSON.stringify({ error: 'Extra info must be a valid object' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      extraInfo = header.extra;
     }
 
     const notificationData = {

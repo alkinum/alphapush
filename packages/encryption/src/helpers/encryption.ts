@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import { LRUCache } from 'lru-cache';
 
 const ALGORITHM = 'AES-GCM';
@@ -11,6 +10,21 @@ const keyCache = new LRUCache<string, CryptoKey>({
   max: 100,
   ttl: 1000 * 60 * 60,
 });
+
+// Add these utility functions for base64 encoding/decoding
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function uint8ArrayToBase64(array: Uint8Array): string {
+  return btoa(String.fromCharCode.apply(null, array as unknown as number[]));
+}
 
 export async function encrypt(
   message: string,
@@ -32,17 +46,17 @@ export async function encrypt(
     data,
   );
 
-  // Encode the encrypted data and nonce to base64
-  const encryptedContent = Buffer.from(encryptedData).toString('base64');
-  const nonceBase64 = Buffer.from(nonce).toString('base64');
+  // Replace Buffer usage with the new utility function
+  const encryptedContent = uint8ArrayToBase64(new Uint8Array(encryptedData));
+  const nonceBase64 = uint8ArrayToBase64(nonce);
 
   return { encryptedContent, nonce: nonceBase64 };
 }
 
 export async function decrypt(encryptedContent: string, masterKey: string, nonce: string): Promise<string> {
-  // Decode the encrypted content and nonce from base64
-  const encryptedData = Buffer.from(encryptedContent, 'base64');
-  const nonceBuffer = Buffer.from(nonce, 'base64');
+  // Replace Buffer usage with the new utility function
+  const encryptedData = base64ToUint8Array(encryptedContent);
+  const nonceBuffer = base64ToUint8Array(nonce);
 
   // Derive the key from the master key and nonce
   const derivedKey = await deriveKey(masterKey, nonceBuffer);
@@ -60,7 +74,8 @@ export async function decrypt(encryptedContent: string, masterKey: string, nonce
 }
 
 async function deriveKey(masterKey: string, salt: Uint8Array): Promise<CryptoKey> {
-  const cacheKey = `${masterKey}:${Buffer.from(salt).toString('base64')}`;
+  // Replace Buffer usage with the new utility function
+  const cacheKey = `${masterKey}:${uint8ArrayToBase64(salt)}`;
   const cachedKey = keyCache.get(cacheKey);
 
   if (cachedKey) {

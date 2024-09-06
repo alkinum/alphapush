@@ -1,9 +1,12 @@
 import { config } from 'dotenv';
-import encryption from '@alkinum/alphapush-encryption';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { encrypt } from '@alkinum/alphapush-encryption';
 
-const { encryption } = 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-config();
+config({ path: resolve(__dirname, '.env') });
 
 const API_TARGET = 'http://localhost:4321/api/push';
 const PUSH_TOKEN = process.env.PUSH_TOKEN;
@@ -20,7 +23,8 @@ async function sendEncryptedNotification(message) {
     const notificationContent = `---
 title: Encrypted Notification
 type: encrypted
-extra: ${JSON.stringify({ nonce })}
+extra:
+  nonce: ${nonce}
 ---
 ${encryptedContent}`;
 
@@ -35,12 +39,15 @@ ${encryptedContent}`;
       }),
     });
 
+    const responseBody = await response.text();
+    console.log('Response status:', response.status);
+    console.log('Response body:', responseBody);
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${responseBody}`);
     }
 
-    const result = await response.json();
-    console.log('Notification sent successfully:', result);
+    console.log('Notification sent successfully');
   } catch (error) {
     console.error('Error sending encrypted notification:', error);
   }

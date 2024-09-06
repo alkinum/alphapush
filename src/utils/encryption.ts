@@ -3,6 +3,8 @@ const DB_NAME = 'encryptionDB';
 const STORE_NAME = 'keyStore';
 const DB_VERSION = 1;
 
+let cachedMasterKey: string | null = null;
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -18,6 +20,8 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 export async function setMasterKey(key: string | null): Promise<void> {
+  cachedMasterKey = key;
+
   if (key) {
     localStorage.setItem(MASTER_KEY_STORAGE_KEY, key);
     const db = await openDatabase();
@@ -30,6 +34,7 @@ export async function setMasterKey(key: string | null): Promise<void> {
     });
   } else {
     localStorage.removeItem(MASTER_KEY_STORAGE_KEY);
+    cachedMasterKey = null;
 
     try {
       const db = await openDatabase();
@@ -70,15 +75,21 @@ export async function setMasterKey(key: string | null): Promise<void> {
 }
 
 export async function getMasterKey(): Promise<string> {
+  if (cachedMasterKey !== null) {
+    return cachedMasterKey;
+  }
+
   const localStorageKey = localStorage.getItem(MASTER_KEY_STORAGE_KEY);
   if (localStorageKey) {
+    cachedMasterKey = localStorageKey;
     return localStorageKey;
   }
 
   try {
     const db = await openDatabase();
     if (!db.objectStoreNames.contains(STORE_NAME)) {
-      console.log('Object store not found, returning empty string');
+      console.debug('Object store not found, returning empty string');
+      cachedMasterKey = '';
       return '';
     }
 
@@ -92,13 +103,16 @@ export async function getMasterKey(): Promise<string> {
     });
 
     if (result === undefined) {
-      console.log('No existing master key found, returning empty string');
+      console.debug('No existing master key found, returning empty string');
+      cachedMasterKey = '';
       return '';
     }
 
+    cachedMasterKey = result;
     return result;
   } catch (error) {
     console.error('Error while attempting to get master key:', error);
+    cachedMasterKey = '';
     return '';
   }
 }
