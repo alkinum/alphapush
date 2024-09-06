@@ -34,7 +34,7 @@ const acceptCookies = () => {
   </Transition>
 </template>
 
-<style scoped>
+<style module>
 .slide-up-enter-active,
 .slide-up-leave-active {
   transition: transform 0.3s ease-out;

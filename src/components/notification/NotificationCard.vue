@@ -17,15 +17,9 @@ import {
   ContextMenuTrigger,
   ContextMenuShortcut,
 } from '@/components/ui/context-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/toast/use-toast';
+
+import DeleteConfirmationDialog from './DeleteConfirmationDialog.vue';
 
 import 'highlight.js/styles/github-dark.css';
 
@@ -224,6 +218,10 @@ onMounted(async () => {
     }
   }
 });
+
+const handleCancelDelete = () => {
+  showDeleteDialog.value = false;
+};
 </script>
 
 <template>
@@ -348,23 +346,10 @@ onMounted(async () => {
     </Button>
   </div>
 
-  <Dialog v-model:open="showDeleteDialog">
-    <DialogContent class="max-w-[95vw] sm:max-w-[425px]">
-      <DialogHeader>
-        <DialogTitle>Confirm Deletion</DialogTitle>
-        <DialogDescription class="mt-4">
-          Are you sure you want to delete this notification? This action cannot be undone.
-        </DialogDescription>
-      </DialogHeader>
-      <DialogFooter class="sm:space-x-2 flex flex-col-reverse sm:flex-row sm:justify-end">
-        <Button @click="showDeleteDialog = false" variant="outline" class="mt-2 sm:mt-0">Cancel</Button>
-        <Button @click="handleDelete" variant="destructive">Delete</Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+  <DeleteConfirmationDialog v-model:isOpen="showDeleteDialog" @confirm="handleDelete" @cancel="handleCancelDelete" />
 </template>
 
-<style scoped>
+<style module>
 .markdown-content {
   font-family:
     system-ui,

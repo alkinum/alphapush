@@ -223,7 +223,7 @@ watch(
   </div>
 </template>
 
-<style scoped>
+<style module>
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.5s ease;
