@@ -5,7 +5,7 @@
 ### v0.3.0
 
 - [ ] User role system.
-- [ ] Support pushing end-to-end encrypted notification.
+- [x] Support pushing end-to-end encrypted notification.
 
 ### Future
 
@@ -14,7 +14,7 @@
 - [ ] Allow to add a ttl to the notification.
 - [ ] Configurable logical deletion of notifications.
 - [ ] Add API Token system.
-- [ ] 
+- [ ] Support multiple selection.
 
 ## Done
 
