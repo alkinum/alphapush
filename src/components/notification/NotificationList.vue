@@ -127,6 +127,7 @@ const handleNotificationDeleted = (deletedId: string) => {
     notifications.value[index].isDeleting = true;
     setTimeout(() => {
       notifications.value = notifications.value.filter((n) => n.id !== deletedId);
+      handleScroll(); // Manually trigger scroll event to load more notifications
     }, 500); // This should match the duration of your animation
   }
 };
