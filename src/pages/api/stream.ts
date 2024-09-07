@@ -8,18 +8,33 @@ import { subscriptions } from '@/schema';
 const clients = new Map<string, Map<string, WritableStreamDefaultWriter<Uint8Array>>>();
 
 export function sendSSEvent(userEmail: string, event: string, data: any) {
-  const userClients = clients.get(userEmail);
-  if (userClients) {
-    const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    const encoder = new TextEncoder();
-    userClients.forEach((writer, deviceFingerprint) => {
-      writer.write(encoder.encode(message)).catch((error) => {
-        console.error('Error sending SSE event:', error);
-        userClients.delete(deviceFingerprint);
-        writer.close().catch(console.error);
-      });
-    });
+  let userClients = clients.get(userEmail);
+  if (!userClients) {
+    userClients = new Map<string, WritableStreamDefaultWriter<Uint8Array>>();
+    clients.set(userEmail, userClients);
   }
+
+  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const encoder = new TextEncoder();
+  userClients.forEach(async (writer, deviceFingerprint) => {
+    try {
+      await writer.ready;
+      await writer.write(encoder.encode(message));
+    } catch (error: unknown) {
+      console.error('Error sending SSE event:', error);
+      userClients.delete(deviceFingerprint);
+      try {
+        await writer.close();
+      } catch (closeError: unknown) {
+        if (closeError && (closeError as Error).message !== 'Invalid state: WritableStream is closed') {
+          console.error('Error closing writer:', closeError);
+        }
+      }
+      if (userClients.size === 0) {
+        clients.delete(userEmail);
+      }
+    }
+  });
 }
 
 export const GET: APIRoute = async ({ request, locals }) => {
@@ -69,20 +84,20 @@ export const GET: APIRoute = async ({ request, locals }) => {
   // Close existing connection for this device if it exists
   const existingWriter = userClients.get(deviceFingerprint);
   if (existingWriter) {
-    Promise.resolve(existingWriter.closed).then(
-      () => {
-        // Writer is already closed, no action needed
-      },
-      () => {
-        // Writer is not closed, so we close it
-        existingWriter.close().catch(console.error);
-      },
-    );
+    userClients.delete(deviceFingerprint);
+    try {
+      await existingWriter.close();
+    } catch (error) {
+      if (error && (error as Error).message !== 'Invalid state: WritableStream is closed') {
+        console.error('Error closing existing writer:', error);
+      }
+    }
+    if (userClients.size === 0) {
+      clients.delete(userEmail);
+    }
   }
 
   userClients.set(deviceFingerprint, writer);
-
-  writer.write(encoder.encode('event: connected\ndata: SSE connection established\n\n'));
 
   const cleanup = async () => {
     clearInterval(heartbeatInterval);
@@ -94,40 +109,41 @@ export const GET: APIRoute = async ({ request, locals }) => {
       }
     }
     try {
-      // Check if the writer is already closed
-      await writer.closed;
-      // If we reach here, the writer is already closed
-    } catch {
-      // If the promise rejects, the writer is not closed, so we close it
-      try {
-        await writer.close();
-      } catch (error) {
+      await writer.close();
+    } catch (error: unknown) {
+      if (error && (error as Error).message !== 'Invalid state: WritableStream is closed') {
         console.error('Error closing writer:', error);
       }
     }
   };
 
+  let heartbeatFailures = 0;
+
   const heartbeatInterval = setInterval(async () => {
     try {
-      // Check if the writer is closed
-      await writer.closed;
-      // If we reach here, the writer is closed, so we clean up
-      await cleanup();
-      return;
-    } catch {
-      // If the promise rejects, the writer is not closed
-      // Wait for the writer to be ready
       await writer.ready;
-
-      // Send the heartbeat
-      try {
-        await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
-      } catch (error) {
-        console.error('Error sending heartbeat:', error);
+      await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
+      heartbeatFailures = 0; // Reset on successful heartbeat
+    } catch (error: unknown) {
+      if (error) {
+        console.error('Error sending heartbeat:', (error as Error).message);
+      }
+      heartbeatFailures++;
+      if (heartbeatFailures >= 5) {
         await cleanup();
       }
     }
   }, 30 * 1000);
+
+  setTimeout(async () => {
+    try {
+      await writer.ready;
+      await writer.write(encoder.encode('event: connected\ndata: SSE connection established\n\n'));
+    } catch (error) {
+      console.error('Error initializing SSE connection:', error);
+      await cleanup();
+    }
+  }, 500);
 
   request.signal.addEventListener('abort', cleanup);
 
