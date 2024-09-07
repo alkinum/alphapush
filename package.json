@@ -15,7 +15,8 @@
     "deploy:dev": "astro build && wrangler pages deploy dist --branch dev",
     "deploy:prod": "astro build && wrangler pages deploy dist --branch main",
     "postinstall": "node scripts/postinstall.mjs",
-    "prebuild": "node scripts/prebuild.mjs"
+    "prebuild": "node scripts/prebuild.mjs",
+    "generate:worker-types": "wrangler types"
   },
   "license": "MIT",
   "homepage": "https://github.com/alkinum/alphapush",
@@ -59,7 +60,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240903.0",
-    "@types/marked": "^5.0.2",
+    "@types/marked": "^6.0.0",
     "@types/web-push": "^3.6.3",
     "better-sqlite3": "^11.2.1",
     "cross-env": "^7.0.3",
