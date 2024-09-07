@@ -225,9 +225,71 @@ const handleCancelDelete = () => {
 </script>
 
 <template>
-  <ContextMenu v-if="!isMobile">
-    <ContextMenuTrigger>
-      <Card
+  <div>
+    <ContextMenu v-if="!isMobile">
+      <ContextMenuTrigger>
+        <div
+          ref="cardRef"
+          class="w-full mb-4 overflow-hidden notification-card"
+          :class="{
+            'highlight-effect': props.notification.highlight,
+            swiped: isSwiped,
+            deleting: props.notification.isDeleting,
+            'new-notification': props.notification.isNew,
+          }"
+          @click="handleSwipeReset"
+        >
+          <Card>
+            <CardHeader class="pt-6 pb-2 px-6">
+              <CardTitle>{{ notification.title }}</CardTitle>
+            </CardHeader>
+            <CardContent class="relative pt-2 pb-4">
+              <div
+                ref="content"
+                class="markdown-content"
+                :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
+                v-html="renderedContent"
+              ></div>
+              <div
+                v-if="isLikelyTruncated && !isApprovalProcess"
+                class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
+              ></div>
+              <Button
+                v-if="isLikelyTruncated && !isApprovalProcess"
+                variant="ghost"
+                size="sm"
+                class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
+                @click="toggleContent"
+              >
+                {{ buttonText }}
+              </Button>
+            </CardContent>
+            <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+              <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
+                <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
+                <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+              </div>
+              <div v-else class="flex justify-end items-center w-full">
+                <Button size="sm" disabled class="w-full">
+                  {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
+                </Button>
+              </div>
+            </CardFooter>
+          </Card>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem @select="showDeleteDialog = true">
+          Delete
+          <ContextMenuShortcut>
+            <Icon icon="mdi:delete" class="w-4 h-4" />
+          </ContextMenuShortcut>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+
+    <div class="relative" v-else>
+      <div
         ref="cardRef"
         class="w-full mb-4 overflow-hidden notification-card"
         :class="{
@@ -238,115 +300,59 @@ const handleCancelDelete = () => {
         }"
         @click="handleSwipeReset"
       >
-        <CardHeader class="pt-6 pb-2 px-6">
-          <CardTitle>{{ notification.title }}</CardTitle>
-        </CardHeader>
-        <CardContent class="relative pt-2 pb-4">
-          <div
-            ref="content"
-            class="markdown-content"
-            :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
-            v-html="renderedContent"
-          ></div>
-          <div
-            v-if="isLikelyTruncated && !isApprovalProcess"
-            class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
-          ></div>
-          <Button
-            v-if="isLikelyTruncated && !isApprovalProcess"
-            variant="ghost"
-            size="sm"
-            class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
-            @click="toggleContent"
-          >
-            {{ buttonText }}
-          </Button>
-        </CardContent>
-        <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
-          <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
-            <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
-            <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
-          </div>
-          <div v-else class="flex justify-end items-center w-full">
-            <Button size="sm" disabled class="w-full">
-              {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
+        <Card>
+          <CardHeader class="pt-6 pb-2 px-6">
+            <CardTitle>{{ notification.title }}</CardTitle>
+          </CardHeader>
+          <CardContent class="relative pt-2 pb-4">
+            <div
+              ref="content"
+              class="markdown-content"
+              :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated }"
+              v-html="renderedContent"
+            ></div>
+            <div
+              v-show="isLikelyTruncated"
+              class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
+            ></div>
+            <Button
+              v-show="isLikelyTruncated"
+              variant="ghost"
+              size="sm"
+              class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
+              @click="toggleContent"
+            >
+              {{ buttonText }}
             </Button>
-          </div>
-        </CardFooter>
-      </Card>
-    </ContextMenuTrigger>
-    <ContextMenuContent>
-      <ContextMenuItem @select="showDeleteDialog = true">
-        Delete
-        <ContextMenuShortcut>
-          <Icon icon="mdi:delete" class="w-4 h-4" />
-        </ContextMenuShortcut>
-      </ContextMenuItem>
-    </ContextMenuContent>
-  </ContextMenu>
+          </CardContent>
+          <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+            <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
+              <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
+              <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+            </div>
+            <div v-else class="flex justify-end items-center w-full">
+              <Button size="sm" disabled class="w-full">
+                {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
+              </Button>
+            </div>
+          </CardFooter>
+        </Card>
+      </div>
 
-  <div class="relative" v-else>
-    <Card
-      ref="cardRef"
-      class="w-full mb-4 overflow-hidden notification-card"
-      :class="{
-        'highlight-effect': props.notification.highlight,
-        swiped: isSwiped,
-        deleting: props.notification.isDeleting,
-        'new-notification': props.notification.isNew,
-      }"
-      @click="handleSwipeReset"
-    >
-      <CardHeader class="pt-6 pb-2 px-6">
-        <CardTitle>{{ notification.title }}</CardTitle>
-      </CardHeader>
-      <CardContent class="relative pt-2 pb-4">
-        <div
-          ref="content"
-          class="markdown-content"
-          :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated }"
-          v-html="renderedContent"
-        ></div>
-        <div
-          v-show="isLikelyTruncated"
-          class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
-        ></div>
-        <Button
-          v-show="isLikelyTruncated"
-          variant="ghost"
-          size="sm"
-          class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
-          @click="toggleContent"
-        >
-          {{ buttonText }}
-        </Button>
-      </CardContent>
-      <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
-        <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
-          <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
-          <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
-        </div>
-        <div v-else class="flex justify-end items-center w-full">
-          <Button size="sm" disabled class="w-full">
-            {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
-          </Button>
-        </div>
-      </CardFooter>
-    </Card>
+      <Button
+        v-if="isMobile"
+        variant="destructive"
+        size="icon"
+        class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
+        :class="{ 'fade-out': props.notification.isDeleting }"
+        @click.stop="showDeleteDialog = true"
+      >
+        <Icon icon="mdi:delete" class="w-5 h-5" />
+      </Button>
+    </div>
 
-    <Button
-      v-if="isMobile"
-      variant="destructive"
-      size="icon"
-      class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
-      :class="{ 'fade-out': props.notification.isDeleting }"
-      @click.stop="showDeleteDialog = true"
-    >
-      <Icon icon="mdi:delete" class="w-5 h-5" />
-    </Button>
+    <DeleteConfirmationDialog v-model:isOpen="showDeleteDialog" @confirm="handleDelete" @cancel="handleCancelDelete" />
   </div>
-
-  <DeleteConfirmationDialog v-model:isOpen="showDeleteDialog" @confirm="handleDelete" @cancel="handleCancelDelete" />
 </template>
 
 <style module>
