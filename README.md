@@ -67,25 +67,31 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
    wrangler d1 create alphapush-prod
    ```
 
-3. Apply migrations to your production database:
+3. Generate drizzle migrations:
+
+   ```
+   npm run db:generate
+   ```
+
+4. Apply migrations to your production database:
 
    ```
    npm run db:migrate:prod
    ```
 
-4. Create a KV namespace:
+5. Create a KV namespace:
 
    ```
    wrangler kv:namespace create alphapush
    ```
 
-5. Setup the environment variables:
+6. Setup the environment variables:
 
    ```
    DB_ID=your_database_id
    ```
 
-6. Setup `wrangler.toml` with the following content:
+7. Setup `wrangler.toml` with the following content:
 
    ```toml
    kv_namespaces = [
