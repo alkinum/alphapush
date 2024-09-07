@@ -2,19 +2,21 @@
 
 ## Planned Features
 
-### v0.3.0
-
-- [ ] User role system.
-- [ ] Support pushing end-to-end encrypted notification.
+- [ ] Add API Token system.
 
 ### Future
 
 - [ ] Add email authentication method with invitation code system.
 - [ ] Allow to filter notifications by category.
 - [ ] Allow to add a ttl to the notification.
-- [ ] Configurable logical deletion of notifications.
+- [ ] Support multiple selection.
 
 ## Done
+
+### v0.3.0
+
+- [x] User role system.
+- [x] Support pushing end-to-end encrypted notification.
 
 ### v0.2.1
 

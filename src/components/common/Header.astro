@@ -4,6 +4,7 @@ import { getSession } from 'auth-astro/server';
 import { PushTokenService } from '@/services/pushTokenService';
 
 import TopUser from '../user/TopUser.vue';
+import TopUserServer from '../user/TopUserServer.astro';
 
 const session = await getSession(Astro.request);
 let pushToken = null;
@@ -21,19 +22,23 @@ const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: str
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 ---
 
-<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4">
-  <div class="container mx-auto px-6 py-3 flex items-center justify-between">
+<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4 h-16 flex items-center">
+  <div class="container mx-auto px-6 flex items-center justify-between h-full">
     <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>
     {
       isAllowedUser ? (
-        <TopUser
-          client:load
-          userInfo={{
-            email: session.user?.email ?? '',
-            nickname: session.user?.name ?? '',
-            pushToken: pushToken ?? undefined,
-          }}
-        />
+        <>
+          <TopUserServer email={session.user?.email ?? ''} nickname={session.user?.name ?? ''} />
+          <TopUser
+            client:only="vue"
+            userInfo={{
+              email: session.user?.email ?? '',
+              nickname: session.user?.name ?? '',
+              role: session.user?.role ?? 'user',
+              pushToken: pushToken ?? undefined,
+            }}
+          />
+        </>
       ) : null
     }
   </div>
@@ -53,14 +58,3 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
   });
 </script>
 
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const topUser = document.querySelector('top-user');
-    if (topUser) {
-      const pushToken = topUser.getAttribute('data-push-token');
-      if (pushToken) {
-        localStorage.setItem('pushToken', pushToken);
-      }
-    }
-  });
-</script>

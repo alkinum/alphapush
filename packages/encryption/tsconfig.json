@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "target": "ESNext",
+    "module": "ESNext",
+    "lib": ["ESNext", "dom"],
+    "strict": true,
+    "declaration": true,
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "declarationDir": "dist/types",
+    "outDir": "dist/lib",
+    "typeRoots": ["node_modules/@types"],
+    "removeComments": true,
+    "importHelpers": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": false,
+    "resolveJsonModule": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true
+  },
+  "include": ["src"],
+  "exclude": ["rollup.config.mjs"]
+}

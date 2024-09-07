@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
-import { TransitionGroup } from 'vue';
 
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
@@ -128,6 +127,7 @@ const handleNotificationDeleted = (deletedId: string) => {
     notifications.value[index].isDeleting = true;
     setTimeout(() => {
       notifications.value = notifications.value.filter((n) => n.id !== deletedId);
+      handleScroll(); // Manually trigger scroll event to load more notifications
     }, 500); // This should match the duration of your animation
   }
 };
@@ -224,7 +224,7 @@ watch(
   </div>
 </template>
 
-<style scoped>
+<style module>
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.5s ease;

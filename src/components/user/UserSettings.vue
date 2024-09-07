@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { Icon } from '@iconify/vue';
+
+import type { UserRole } from '@/auth';
 import { useToast } from '@/components/ui/toast/use-toast';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Icon } from '@iconify/vue';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +17,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { setMasterKey, getMasterKey } from '@/utils/encryption';
+import { Badge } from '@/components/ui/badge';
 
 const { toast } = useToast();
 
@@ -30,6 +36,7 @@ const props = defineProps<{
   userInfo: {
     email: string;
     nickname?: string;
+    role?: UserRole;
   };
 }>();
 
@@ -50,9 +57,16 @@ const userInitials = computed(() => {
   return name.slice(0, 2).toUpperCase();
 });
 
-onMounted(() => {
+const masterKey = ref('');
+const showMasterKey = ref(false);
+
+onMounted(async () => {
   pushToken.value = props.initialPushToken;
   vapidPublicKey.value = localStorage.getItem('vapidPublicKey');
+  const existingMasterKey = await getMasterKey();
+  if (existingMasterKey) {
+    masterKey.value = existingMasterKey;
+  }
 });
 
 const copyPushToken = () => {
@@ -180,6 +194,23 @@ const resetPushToken = async () => {
   showResetPushTokenDialog.value = false;
 };
 
+const saveMasterKey = async () => {
+  try {
+    await setMasterKey(masterKey.value || null);
+    toast({
+      title: 'Success',
+      description: masterKey.value ? 'Encryption key has been set.' : 'Encryption key has been removed.',
+    });
+  } catch (error) {
+    console.error('Error setting encryption key:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to set encryption key. Please try again.',
+      variant: 'destructive',
+    });
+  }
+};
+
 const openSettings = () => {
   isOpen.value = true;
 };
@@ -189,79 +220,124 @@ defineExpose({ openSettings });
 
 <template>
   <Sheet v-model:open="isOpen">
-    <SheetContent>
+    <SheetContent class="flex flex-col">
       <SheetHeader>
         <SheetTitle>User Settings</SheetTitle>
-        <SheetDescription> Manage your account and push notification settings. </SheetDescription>
+        <SheetDescription>Manage your account, push notification settings, and security.</SheetDescription>
       </SheetHeader>
-      <div class="grid gap-4 py-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>User Information</CardTitle>
-          </CardHeader>
-          <CardContent :class="cn('pt-0')">
-            <div class="flex items-center space-x-4">
-              <Avatar>
-                <AvatarFallback>{{ userInitials }}</AvatarFallback>
-              </Avatar>
+      <div class="scrollable-content flex-1">
+        <div class="grid gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>User Information</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0')">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                  <Avatar>
+                    <AvatarFallback>{{ userInitials }}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p class="text-sm font-medium">{{ displayName }}</p>
+                    <p class="text-xs text-muted-foreground">{{ props.userInfo.email }}</p>
+                  </div>
+                </div>
+                <Badge v-if="props.userInfo.role === 'admin'" variant="secondary" class="text-xs py-1 select-none">
+                  Admin
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Push Token</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0')">
+              <div class="flex items-center space-x-2">
+                <div class="flex-grow p-2 bg-secondary rounded-md">
+                  <p v-if="pushToken" class="text-xs font-mono break-all">{{ pushToken }}</p>
+                  <p v-else class="text-xs text-muted-foreground italic">No push token available</p>
+                </div>
+                <Button @click="copyPushToken" variant="outline" size="icon" :disabled="!pushToken">
+                  <Icon icon="mdi:content-copy" class="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>End-to-End Encryption Key</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0 space-y-4')">
+              <div class="space-y-2">
+                <Label for="masterKey">Encryption Key</Label>
+                <div class="flex space-x-2">
+                  <Input
+                    id="masterKey"
+                    v-model="masterKey"
+                    :type="showMasterKey ? 'text' : 'password'"
+                    placeholder="Enter encryption key"
+                  />
+                  <Button @click="showMasterKey = !showMasterKey" variant="outline" size="icon">
+                    <Icon :icon="showMasterKey ? 'mdi:eye' : 'mdi:eye-off'" class="h-4 w-4" />
+                  </Button>
+                  <Button @click="saveMasterKey" variant="outline" size="icon">
+                    <Icon icon="mdi:content-save" class="h-4 w-4" />
+                  </Button>
+                </div>
+                <div class="space-y-1">
+                  <p class="text-sm text-muted-foreground">
+                    This key is used for end-to-end encryption in the push service. Make sure it matches the key used by
+                    your push source.
+                  </p>
+                  <p class="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                    Warning: If the key is incorrect, all encrypted notifications will fail to decrypt.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Danger Zone</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0 space-y-4')">
               <div>
-                <p class="text-sm font-medium">{{ displayName }}</p>
-                <p class="text-xs text-muted-foreground">{{ props.userInfo.email }}</p>
+                <h4 class="text-sm font-medium mb-2">Reset VAPID Keys</h4>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs text-muted-foreground flex-grow pr-4">
+                    Reset VAPID keys for push notifications. All existing subscriptions will be invalidated.
+                  </p>
+                  <Button
+                    @click="showResetVapidDialog = true"
+                    variant="destructive"
+                    size="sm"
+                    :disabled="!vapidPublicKey"
+                  >
+                    Reset
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Push Token</CardTitle>
-          </CardHeader>
-          <CardContent :class="cn('pt-0')">
-            <div class="flex items-center space-x-2">
-              <div class="flex-grow p-2 bg-secondary rounded-md">
-                <p v-if="pushToken" class="text-xs font-mono break-all">{{ pushToken }}</p>
-                <p v-else class="text-xs text-muted-foreground italic">No push token available</p>
+              <Separator />
+              <div>
+                <h4 class="text-sm font-medium mb-2">Reset Push Token</h4>
+                <div class="flex items-center justify-between">
+                  <p class="text-xs text-muted-foreground flex-grow pr-4">
+                    Reset your push token. You'll need to resubscribe to push notifications.
+                  </p>
+                  <Button
+                    @click="showResetPushTokenDialog = true"
+                    variant="destructive"
+                    size="sm"
+                    :disabled="!pushToken"
+                  >
+                    Reset
+                  </Button>
+                </div>
               </div>
-              <Button @click="copyPushToken" variant="outline" size="icon" :disabled="!pushToken">
-                <Icon icon="mdi:content-copy" class="h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Danger Zone</CardTitle>
-          </CardHeader>
-          <CardContent :class="cn('pt-0 space-y-4')">
-            <div>
-              <h4 class="text-sm font-medium mb-2">Reset VAPID Keys</h4>
-              <div class="flex items-center justify-between">
-                <p class="text-xs text-muted-foreground flex-grow pr-4">
-                  Reset VAPID keys for push notifications. All existing subscriptions will be invalidated.
-                </p>
-                <Button
-                  @click="showResetVapidDialog = true"
-                  variant="destructive"
-                  size="sm"
-                  :disabled="!vapidPublicKey"
-                >
-                  Reset
-                </Button>
-              </div>
-            </div>
-            <Separator />
-            <div>
-              <h4 class="text-sm font-medium mb-2">Reset Push Token</h4>
-              <div class="flex items-center justify-between">
-                <p class="text-xs text-muted-foreground flex-grow pr-4">
-                  Reset your push token. You'll need to resubscribe to push notifications.
-                </p>
-                <Button @click="showResetPushTokenDialog = true" variant="destructive" size="sm" :disabled="!pushToken">
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </SheetContent>
   </Sheet>
@@ -308,3 +384,27 @@ defineExpose({ openSettings });
     </DialogContent>
   </Dialog>
 </template>
+
+<style scoped>
+.scrollable-content {
+  @apply overflow-y-auto pr-6 -mr-6;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted)) transparent;
+}
+
+.scrollable-content::-webkit-scrollbar {
+  @apply w-2;
+}
+
+.scrollable-content::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb {
+  @apply bg-muted rounded-full;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted/80;
+}
+</style>

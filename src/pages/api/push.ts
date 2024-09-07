@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { eq } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import { createId } from '@paralleldrive/cuid2';
+import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
 import { userCredentials, pushNotifications, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
@@ -27,17 +28,12 @@ function parseMarkdownHeader(content: string): MarkdownHeader {
   if (!headerMatch) return {};
 
   const header = headerMatch[1];
-  const result: MarkdownHeader = {};
-
-  const lines = header.split('\n');
-  for (const line of lines) {
-    const [key, ...valueParts] = line.split(':').map((part) => part.trim());
-    if (key && valueParts.length > 0) {
-      result[key] = valueParts.join(':').trim();
-    }
+  try {
+    return parseYaml(header) as MarkdownHeader;
+  } catch (error) {
+    console.error('Error parsing YAML header:', error);
+    return {};
   }
-
-  return result;
 }
 
 /**
@@ -106,6 +102,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
     }
 
+    let extraInfo: Record<string, any> | undefined;
+    if (header.extra) {
+      if (typeof header.extra !== 'object' || header.extra === null || Array.isArray(header.extra)) {
+        return new Response(JSON.stringify({ error: 'Extra info must be a valid object' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      extraInfo = header.extra;
+    }
+
     const notificationData = {
       content,
       title: header.title,
@@ -114,6 +121,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       userEmail: user.email,
       iconUrl: header.icon_url,
       type: header.type,
+      extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
     };
 
     let notification: Notification | undefined;
@@ -186,17 +194,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // Construct the message outside the loop
     const message = JSON.stringify({
-      id: notification.id,
-      title: notification.title,
-      body: notification.content,
-      category: notification.category,
-      group: notification.group,
-      iconUrl: notification.iconUrl,
-      type: notification.type,
+      ...notification,
       approvalState: header.type === 'approval-process' ? 'pending' : undefined,
       approvalId: approvalId,
       tempAccessToken: tempAccessToken,
-      createdAt: Date.now(),
     });
 
     // Check message size

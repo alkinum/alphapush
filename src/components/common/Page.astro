@@ -37,6 +37,7 @@ const isMobile = isMobileDevice(userAgent);
     <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="mobile-web-app-capable" content="yes" />
   </head>
   <body class="min-h-screen overflow-x-hidden" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
     <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
@@ -54,6 +55,7 @@ const isMobile = isMobileDevice(userAgent);
       import { signIn, signOut } from 'auth-astro/client';
       import { useToast } from '@/components/ui/toast/use-toast';
       import { getCombinedFingerprint } from '@/utils/fingerprint';
+      import { setMasterKey } from '@/utils/encryption';
 
       let vapidPublicKey = localStorage.getItem('vapidPublicKey');
       let deviceFingerprint: string | null = null;
@@ -280,6 +282,9 @@ const isMobile = isMobileDevice(userAgent);
         // Delete user related localstoarge items
         localStorage.removeItem('vapidPublicKey');
         localStorage.removeItem('pushToken');
+
+        // Clear the master key cache
+        await setMasterKey(null);
 
         await unsubscribeWebPush();
         signOut().then(() => {

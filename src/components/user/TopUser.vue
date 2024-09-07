@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center">
+  <div class="flex items-center" :style="{ display: isVisible ? 'flex' : 'none' }">
     <DropdownMenu>
       <DropdownMenuTrigger class="flex items-center space-x-2">
         <Avatar>
@@ -48,19 +48,24 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@iconify/vue';
+
+import type { UserRole } from '@/auth';
 import { useToast } from '@/components/ui/toast';
+
 import UserSettings from './UserSettings.vue';
 
 interface UserInfo {
   email: string;
   nickname?: string;
   pushToken?: string;
+  role?: UserRole;
 }
 
 const props = defineProps<{
   userInfo: UserInfo;
 }>();
 
+const isVisible = ref(false);
 const localPushToken = ref(props.userInfo.pushToken);
 const userSettingsRef = ref<InstanceType<typeof UserSettings> | null>(null);
 
@@ -122,6 +127,11 @@ const handleNewPushToken = (event: CustomEvent<{ pushToken: string }>) => {
 
 onMounted(() => {
   document.addEventListener('newPushToken', handleNewPushToken as EventListener);
+  const topUserServer = document.getElementById('top-user-server');
+  if (topUserServer) {
+    topUserServer.remove();
+  }
+  isVisible.value = true;
 });
 
 onUnmounted(() => {
@@ -129,9 +139,12 @@ onUnmounted(() => {
 });
 
 // Watch for changes in the userInfo prop
-watch(() => props.userInfo.pushToken, (newToken) => {
-  if (newToken !== undefined) {
-    localPushToken.value = newToken;
-  }
-});
+watch(
+  () => props.userInfo.pushToken,
+  (newToken) => {
+    if (newToken !== undefined) {
+      localPushToken.value = newToken;
+    }
+  },
+);
 </script>
