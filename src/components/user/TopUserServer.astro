@@ -1,0 +1,24 @@
+---
+interface Props {
+  email: string;
+  nickname?: string;
+}
+
+const { email, nickname } = Astro.props;
+
+const displayName =
+  nickname || (email.length > 20 ? `${email.slice(0, 3)}...${email.slice(-3)}@${email.split('@')[1]}` : email);
+
+const userInitials = (nickname || email.split('@')[0]).slice(0, 2).toUpperCase();
+---
+
+<div class="flex items-center select-none" id="top-user-server">
+  <div class="flex items-center space-x-2">
+    <div
+      class="inline-flex items-center justify-center font-normal text-foreground select-none shrink-0 bg-secondary overflow-hidden h-10 w-10 text-xs rounded-full"
+    >
+      <span class="text-xs font-medium">{userInitials}</span>
+    </div>
+    <span class="text-sm font-medium">{displayName}</span>
+  </div>
+</div>

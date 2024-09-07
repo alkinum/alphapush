@@ -414,7 +414,7 @@ const handleCancelDelete = () => {
     'Open Sans',
     'Helvetica Neue',
     sans-serif;
-  line-height: 24px;
+  line-height: 1.5;
   color: hsl(var(--foreground));
   padding-right: 16px;
   font-size: 0.875rem;

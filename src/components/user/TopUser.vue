@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center">
+  <div class="flex items-center" :style="{ display: isVisible ? 'flex' : 'none' }">
     <DropdownMenu>
       <DropdownMenuTrigger class="flex items-center space-x-2">
         <Avatar>
@@ -65,6 +65,7 @@ const props = defineProps<{
   userInfo: UserInfo;
 }>();
 
+const isVisible = ref(false);
 const localPushToken = ref(props.userInfo.pushToken);
 const userSettingsRef = ref<InstanceType<typeof UserSettings> | null>(null);
 
@@ -126,6 +127,11 @@ const handleNewPushToken = (event: CustomEvent<{ pushToken: string }>) => {
 
 onMounted(() => {
   document.addEventListener('newPushToken', handleNewPushToken as EventListener);
+  const topUserServer = document.getElementById('top-user-server');
+  if (topUserServer) {
+    topUserServer.remove();
+  }
+  isVisible.value = true;
 });
 
 onUnmounted(() => {
@@ -133,9 +139,12 @@ onUnmounted(() => {
 });
 
 // Watch for changes in the userInfo prop
-watch(() => props.userInfo.pushToken, (newToken) => {
-  if (newToken !== undefined) {
-    localPushToken.value = newToken;
-  }
-});
+watch(
+  () => props.userInfo.pushToken,
+  (newToken) => {
+    if (newToken !== undefined) {
+      localPushToken.value = newToken;
+    }
+  },
+);
 </script>
