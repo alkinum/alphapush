@@ -151,7 +151,6 @@ export const GET: APIRoute = async ({ request, locals }) => {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
     },
   });
 };
