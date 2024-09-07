@@ -99,7 +99,11 @@ export const GET: APIRoute = async ({ request, locals }) => {
       // If we reach here, the writer is already closed
     } catch {
       // If the promise rejects, the writer is not closed, so we close it
-      await writer.close().catch(console.error);
+      try {
+        await writer.close();
+      } catch (error) {
+        console.error('Error closing writer:', error);
+      }
     }
   };
 
@@ -116,7 +120,12 @@ export const GET: APIRoute = async ({ request, locals }) => {
       await writer.ready;
 
       // Send the heartbeat
-      await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
+      try {
+        await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
+      } catch (error) {
+        console.error('Error sending heartbeat:', error);
+        await cleanup();
+      }
     }
   }, 30 * 1000);
 
