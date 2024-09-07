@@ -18,6 +18,7 @@ import {
   ContextMenuShortcut,
 } from '@/components/ui/context-menu';
 import { useToast } from '@/components/ui/toast/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 import DeleteConfirmationDialog from './DeleteConfirmationDialog.vue';
 
@@ -50,13 +51,35 @@ renderer.code = ({ text, lang }) => {
 const decryptedContent = ref<string | null>(null);
 const decryptionError = ref<string | null>(null);
 
+const LINE_HEIGHT = 24;
+const MAX_LINES = 10;
+
+const estimatedLineCount = computed(() => {
+  if (props.notification.type !== 'encrypted') return 0;
+
+  // Estimate the decrypted length (AES-GCM adds about 16 bytes of overhead)
+  const estimatedDecryptedLength = Math.max(0, props.notification.content.length - 16);
+
+  // Assume an average of 50 characters per line
+  const averageCharsPerLine = 50;
+
+  // Calculate estimated line count, with a minimum of 1 and maximum of MAX_LINES
+  return Math.min(MAX_LINES, Math.max(1, Math.ceil(estimatedDecryptedLength / averageCharsPerLine)));
+});
+
+const skeletonLines = computed(() => {
+  return Array.from({ length: estimatedLineCount.value }, (_, index) => ({
+    width: index === estimatedLineCount.value - 1 ? '75%' : '100%',
+  }));
+});
+
 const renderedContent = computed(() => {
   if (props.notification.type === 'encrypted') {
     if (decryptionError.value) {
       return `<p class="text-red-500">Decryption failed: ${decryptionError.value}</p>`;
     }
     if (decryptedContent.value === null) {
-      return '<p>Decrypting content...</p>';
+      return null; // Return null to indicate loading state
     }
     return marked(decryptedContent.value, { renderer });
   }
@@ -244,7 +267,18 @@ const handleCancelDelete = () => {
               <CardTitle>{{ notification.title }}</CardTitle>
             </CardHeader>
             <CardContent class="relative pt-2 pb-4">
+              <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
+                <div class="space-y-1">
+                  <Skeleton
+                    v-for="(line, index) in skeletonLines"
+                    :key="index"
+                    :style="{ height: `${LINE_HEIGHT}px` }"
+                    :class="[`w-[${line.width}]`]"
+                  />
+                </div>
+              </template>
               <div
+                v-else
                 ref="content"
                 class="markdown-content"
                 :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
@@ -305,7 +339,18 @@ const handleCancelDelete = () => {
             <CardTitle>{{ notification.title }}</CardTitle>
           </CardHeader>
           <CardContent class="relative pt-2 pb-4">
+            <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
+              <div class="space-y-1">
+                <Skeleton
+                  v-for="(line, index) in skeletonLines"
+                  :key="index"
+                  :style="{ height: `${LINE_HEIGHT}px` }"
+                  :class="[`w-[${line.width}]`]"
+                />
+              </div>
+            </template>
             <div
+              v-else
               ref="content"
               class="markdown-content"
               :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated }"
@@ -369,7 +414,7 @@ const handleCancelDelete = () => {
     'Open Sans',
     'Helvetica Neue',
     sans-serif;
-  line-height: 1.5;
+  line-height: 24px;
   color: hsl(var(--foreground));
   padding-right: 16px;
   font-size: 0.875rem;
@@ -406,7 +451,7 @@ const handleCancelDelete = () => {
 }
 
 .markdown-content :deep(p) {
-  margin-bottom: 1em;
+  margin-bottom: 24px;
 }
 
 .markdown-content :deep(p:only-child) {
@@ -517,5 +562,9 @@ const handleCancelDelete = () => {
 
 .notification-card :deep(.border-t) {
   border-top: 1px solid hsl(var(--border));
+}
+
+.markdown-content :deep(.skeleton) {
+  @apply bg-muted;
 }
 </style>
