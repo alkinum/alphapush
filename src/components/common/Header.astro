@@ -21,8 +21,8 @@ const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: str
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 ---
 
-<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4">
-  <div class="container mx-auto px-6 py-3 flex items-center justify-between">
+<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4 h-16 flex items-center">
+  <div class="container mx-auto px-6 flex items-center justify-between h-full">
     <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>
     {
       isAllowedUser ? (
@@ -31,6 +31,7 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
           userInfo={{
             email: session.user?.email ?? '',
             nickname: session.user?.name ?? '',
+            role: session.user?.role ?? 'user',
             pushToken: pushToken ?? undefined,
           }}
         />

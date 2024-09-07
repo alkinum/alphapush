@@ -48,13 +48,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@iconify/vue';
+
+import type { UserRole } from '@/auth';
 import { useToast } from '@/components/ui/toast';
+
 import UserSettings from './UserSettings.vue';
 
 interface UserInfo {
   email: string;
   nickname?: string;
   pushToken?: string;
+  role?: UserRole;
 }
 
 const props = defineProps<{
