@@ -126,7 +126,12 @@ export const GET: APIRoute = async ({ request, locals }) => {
       heartbeatFailures = 0; // Reset on successful heartbeat
     } catch (error: unknown) {
       if (error) {
-        console.error('Error sending heartbeat:', (error as Error).message);
+        if ((error as Error).message === 'Invalid state: WritableStream is closed') {
+          await cleanup();
+          return;
+        } else {
+          console.error('Error sending heartbeat:', (error as Error).message);
+        }
       }
       heartbeatFailures++;
       if (heartbeatFailures >= 5) {

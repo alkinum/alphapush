@@ -18,6 +18,12 @@
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuSeparator v-if="localPushToken" />
+        <DropdownMenuItem @click="openApiTokenDialog">
+          <span class="text-xs">API Tokens</span>
+          <DropdownMenuShortcut>
+            <Icon icon="mdi:key-variant" class="h-3 w-3" />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem @click="openUserSettings">
           <span class="text-xs">User Settings</span>
           <DropdownMenuShortcut>
@@ -33,6 +39,8 @@
       </DropdownMenuContent>
     </DropdownMenu>
     <UserSettings ref="userSettingsRef" :initial-push-token="localPushToken" :user-info="props.userInfo" />
+    <!-- 新增的API令牌对话框组件 -->
+    <ApiTokenDialog ref="apiTokenDialogRef" />
   </div>
 </template>
 
@@ -53,6 +61,7 @@ import type { UserRole } from '@/auth';
 import { useToast } from '@/components/ui/toast';
 
 import UserSettings from './UserSettings.vue';
+import ApiTokenDialog from './ApiTokenDialog.vue'; // 导入新的API令牌对话框组件
 
 interface UserInfo {
   email: string;
@@ -68,6 +77,7 @@ const props = defineProps<{
 const isVisible = ref(false);
 const localPushToken = ref(props.userInfo.pushToken);
 const userSettingsRef = ref<InstanceType<typeof UserSettings> | null>(null);
+const apiTokenDialogRef = ref<InstanceType<typeof ApiTokenDialog> | null>(null);
 
 const displayName = computed(() => {
   if (props.userInfo.nickname) {
@@ -123,6 +133,12 @@ const openUserSettings = () => {
 
 const handleNewPushToken = (event: CustomEvent<{ pushToken: string }>) => {
   localPushToken.value = event.detail.pushToken;
+};
+
+const openApiTokenDialog = () => {
+  if (apiTokenDialogRef.value) {
+    apiTokenDialogRef.value.open();
+  }
 };
 
 onMounted(() => {
