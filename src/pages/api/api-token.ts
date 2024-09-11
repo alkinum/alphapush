@@ -17,6 +17,12 @@ function calculateExpiryDate(expiresIn: number): Date | null {
   return expiryDate;
 }
 
+function maskToken(token: string): string {
+  if (token.length <= 8) return token;
+  const visiblePart = 4;
+  return token.slice(0, visiblePart) + '*'.repeat(token.length - 2 * visiblePart) + token.slice(-visiblePart);
+}
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     const session = await getSession(request);
@@ -89,10 +95,18 @@ export const GET: APIRoute = async ({ request, locals }) => {
     }
 
     const { tokens, totalCount } = await apiTokenService.getTokens(userEmail, page, pageSize);
+
+    // Calculate totalPages
     const totalPages = Math.ceil(totalCount / pageSize);
 
+    // Mask the tokens before sending the response
+    const maskedTokens = tokens.map((token) => ({
+      ...token,
+      token: maskToken(token.token),
+    }));
+
     const response: ApiTokensResponse = {
-      tokens,
+      tokens: maskedTokens,
       pagination: {
         currentPage: page,
         pageSize,
