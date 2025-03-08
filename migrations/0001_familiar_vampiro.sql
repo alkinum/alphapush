@@ -1,0 +1,1 @@
+ALTER TABLE `push_notifications` ADD `icon_url` text;
