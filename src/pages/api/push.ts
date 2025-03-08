@@ -13,26 +13,70 @@ import { isLocalNetworkUrl } from '@/utils/network';
 
 import { sendSSEvent } from './stream';
 
+/**
+ * Interface for all possible frontmatter parameters
+ */
+interface FrontmatterParams {
+  title?: string;
+  category?: string;
+  group?: string;
+  icon_url?: string;
+  type?: string;
+  webhook_url?: string;
+  topic?: string;
+  extra?: Record<string, any>;
+}
+
 interface PushBody {
   pushToken: string;
   content: string;
+  // Direct parameters that can override frontmatter
+  title?: string;
+  category?: string;
+  group?: string;
+  icon_url?: string;
+  type?: string;
+  webhook_url?: string;
+  topic?: string;
+  extra?: Record<string, any>;
 }
-
-type MarkdownHeader = Record<string, string>;
 
 const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
 
-function parseMarkdownHeader(content: string): MarkdownHeader {
+/**
+ * Parse markdown frontmatter using yaml parser
+ * @param content Markdown content with frontmatter
+ * @returns Parsed frontmatter and content
+ */
+function parseMarkdownHeader(content: string): { data: FrontmatterParams; content: string } {
   const trimmedContent = content.trim();
-  const headerMatch = trimmedContent.match(/^---\s*\n([\s\S]*?)\n\s*---/);
-  if (!headerMatch) return {};
+  // Match frontmatter between triple dashes
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n\s*---\s*\n/;
+  const match = trimmedContent.match(frontmatterRegex);
 
-  const header = headerMatch[1];
+  if (!match) {
+    // No frontmatter found, return empty data and original content
+    return { data: {}, content: trimmedContent };
+  }
+
+  const [fullMatch, yamlContent] = match;
+
   try {
-    return parseYaml(header) as MarkdownHeader;
+    // Parse the YAML content
+    const data = parseYaml(yamlContent) as FrontmatterParams;
+
+    // Remove frontmatter from content
+    const contentWithoutFrontmatter = trimmedContent.replace(fullMatch, '').trim();
+
+    return {
+      data,
+      content: contentWithoutFrontmatter
+    };
   } catch (error) {
-    console.error('Error parsing YAML header:', error);
-    return {};
+    console.error('Error parsing YAML frontmatter:', error);
+    // In case of parsing error, return empty data and content without frontmatter
+    const contentWithoutFrontmatter = trimmedContent.replace(frontmatterRegex, '').trim();
+    return { data: {}, content: contentWithoutFrontmatter || trimmedContent };
   }
 }
 
@@ -81,13 +125,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const trimmedContent = body.content.trim();
-    const header = parseMarkdownHeader(trimmedContent);
-    const content = trimmedContent.replace(/^---\s*\n[\s\S]*?\n\s*---\s*\n/, '').trim();
+    // Parse frontmatter and content
+    const { data: frontmatterParams, content } = parseMarkdownHeader(body.content);
 
-    if (header.icon_url) {
+    // Merge direct parameters with frontmatter (direct parameters take precedence)
+    const mergedParams: FrontmatterParams = {
+      ...frontmatterParams,
+      ...(body.title && { title: body.title }),
+      ...(body.category && { category: body.category }),
+      ...(body.group && { group: body.group }),
+      ...(body.icon_url && { icon_url: body.icon_url }),
+      ...(body.type && { type: body.type }),
+      ...(body.webhook_url && { webhook_url: body.webhook_url }),
+      ...(body.topic && { topic: body.topic }),
+      ...(body.extra && { extra: body.extra }),
+    };
+
+    if (mergedParams.icon_url) {
       try {
-        const url = new URL(header.icon_url);
+        const url = new URL(mergedParams.icon_url);
         if (url.protocol !== 'https:') {
           return new Response(JSON.stringify({ error: 'Icon URL must use HTTPS protocol' }), {
             status: 400,
@@ -103,24 +159,24 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     let extraInfo: Record<string, any> | undefined;
-    if (header.extra) {
-      if (typeof header.extra !== 'object' || header.extra === null || Array.isArray(header.extra)) {
+    if (mergedParams.extra) {
+      if (typeof mergedParams.extra !== 'object' || mergedParams.extra === null || Array.isArray(mergedParams.extra)) {
         return new Response(JSON.stringify({ error: 'Extra info must be a valid object' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      extraInfo = header.extra;
+      extraInfo = mergedParams.extra;
     }
 
     const notificationData = {
       content,
-      title: header.title,
-      category: header.category,
-      group: header.group,
+      title: mergedParams.title,
+      category: mergedParams.category,
+      group: mergedParams.group,
       userEmail: user.email,
-      iconUrl: header.icon_url,
-      type: header.type,
+      iconUrl: mergedParams.icon_url,
+      type: mergedParams.type,
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
     };
 
@@ -135,8 +191,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
       throw new Error('Failed to create notification');
     }
 
-    if (header.type === 'approval-process') {
-      if (!header.webhook_url) {
+    if (mergedParams.type === 'approval-process') {
+      if (!mergedParams.webhook_url) {
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -144,7 +200,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
 
       // SSRF check
-      const { isValid, error } = validateWebhookUrl(header.webhook_url);
+      const { isValid, error } = validateWebhookUrl(mergedParams.webhook_url);
       if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
         return new Response(JSON.stringify({ error }), {
           status: 400,
@@ -155,7 +211,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       // Insert approval process
       const approvalProcess = await approvalProcessService.addApprovalProcess({
         notificationId: notification.id,
-        webhookUrl: header.webhook_url,
+        webhookUrl: mergedParams.webhook_url,
         userEmail: user.email,
       });
 
@@ -195,7 +251,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Construct the message outside the loop
     const message = JSON.stringify({
       ...notification,
-      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
       approvalId: approvalId,
       tempAccessToken: tempAccessToken,
     });
@@ -214,7 +270,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       try {
         await webPushService.sendNotification(subscription, message, {
           ttl: 60,
-          topic: header.topic || 'Default',
+          topic: mergedParams.topic || 'Default',
           urgency: 'normal',
         });
       } catch (error) {
@@ -242,7 +298,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     sendSSEvent(user.email, 'newNotification', {
       ...notification,
-      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
+      approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
       approvalId: approvalId,
     });
 
@@ -269,7 +325,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       notificationId: notification.id,
     };
 
-    if (header.type === 'approval-process' && approvalId) {
+    if (mergedParams.type === 'approval-process' && approvalId) {
       responseData.approvalId = approvalId;
     }
 
