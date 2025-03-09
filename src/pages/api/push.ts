@@ -1,23 +1,14 @@
 import type { APIRoute } from 'astro';
-import { eq } from 'drizzle-orm';
-import type { PushSubscription } from '@block65/webcrypto-web-push';
-import { createId } from '@paralleldrive/cuid2';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
-import { userCredentials, pushNotifications, subscriptions } from '@/schema';
-import { WebPushService } from '@/services/webPushService';
-import { SubscriptionService } from '@/services/subscriptionService';
-import { ApprovalProcessService } from '@/services/approvalProcessService';
-import type { Notification } from '@/types/notification';
-import { isLocalNetworkUrl } from '@/utils/network';
-
-import { sendSSEvent } from './stream';
+import { PushService } from '@/services/pushService';
 
 /**
  * Interface for all possible frontmatter parameters
  */
 interface FrontmatterParams {
   title?: string;
+  subtitle?: string;
   category?: string;
   group?: string;
   icon_url?: string;
@@ -32,6 +23,7 @@ interface PushBody {
   content: string;
   // Direct parameters that can override frontmatter
   title?: string;
+  subtitle?: string;
   category?: string;
   group?: string;
   icon_url?: string;
@@ -40,8 +32,6 @@ interface PushBody {
   topic?: string;
   extra?: Record<string, any>;
 }
-
-const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
 
 /**
  * Parse markdown frontmatter using yaml parser
@@ -80,29 +70,6 @@ function parseMarkdownHeader(content: string): { data: FrontmatterParams; conten
   }
 }
 
-/**
- * Checks if a webhook URL is valid and not a local network URL.
- * @param url The webhook URL to check
- * @returns An object with a boolean indicating if the URL is valid and a possible error message
- */
-export function validateWebhookUrl(url: string): { isValid: boolean; error?: string } {
-  if (!url) {
-    return { isValid: false, error: 'Webhook URL is required' };
-  }
-
-  try {
-    new URL(url);
-  } catch (error) {
-    return { isValid: false, error: 'Invalid URL format' };
-  }
-
-  if (isLocalNetworkUrl(url)) {
-    return { isValid: false, error: 'Local network URLs are not allowed for webhooks' };
-  }
-
-  return { isValid: true };
-}
-
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     const body = (await request.json()) as PushBody;
@@ -115,9 +82,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const db = getDb(locals.runtime.env.DB);
-    const approvalProcessService = new ApprovalProcessService(db);
+    const pushService = new PushService(db, locals.runtime.env);
 
-    const user = await db.select().from(userCredentials).where(eq(userCredentials.pushToken, body.pushToken)).get();
+    // Validate push token
+    const user = await pushService.validatePushToken(body.pushToken);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid push token' }), {
         status: 401,
@@ -132,6 +100,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const mergedParams: FrontmatterParams = {
       ...frontmatterParams,
       ...(body.title && { title: body.title }),
+      ...(body.subtitle && { subtitle: body.subtitle }),
       ...(body.category && { category: body.category }),
       ...(body.group && { group: body.group }),
       ...(body.icon_url && { icon_url: body.icon_url }),
@@ -172,6 +141,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const notificationData = {
       content,
       title: mergedParams.title,
+      subtitle: mergedParams.subtitle,
       category: mergedParams.category,
       group: mergedParams.group,
       userEmail: user.email,
@@ -180,17 +150,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
     };
 
-    let notification: Notification | undefined;
-    let approvalId: string | undefined;
-    let tempAccessToken: string | undefined;
-
-    // Insert notification
-    notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+    // Create notification
+    const notification = await pushService.createNotification(notificationData);
 
     if (!notification) {
       throw new Error('Failed to create notification');
     }
 
+    let approvalId: string | undefined;
+    let tempAccessToken: string | undefined;
+
+    // Handle approval process if needed
     if (mergedParams.type === 'approval-process') {
       if (!mergedParams.webhook_url) {
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
@@ -199,115 +169,40 @@ export const POST: APIRoute = async ({ request, locals }) => {
         });
       }
 
-      // SSRF check
-      const { isValid, error } = validateWebhookUrl(mergedParams.webhook_url);
-      if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
-        return new Response(JSON.stringify({ error }), {
+      try {
+        const result = await pushService.createApprovalProcess(
+          notification,
+          mergedParams.webhook_url,
+          user.email
+        );
+        approvalId = result.approvalId;
+        tempAccessToken = result.tempAccessToken;
+      } catch (error) {
+        return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
+    }
 
-      // Insert approval process
-      const approvalProcess = await approvalProcessService.addApprovalProcess({
-        notificationId: notification.id,
-        webhookUrl: mergedParams.webhook_url,
-        userEmail: user.email,
-      });
-
-      if (!approvalProcess) {
-        throw new Error('Failed to create approval process');
-      }
-
-      approvalId = approvalProcess.id;
-
-      // Generate and store temporary access token
-      tempAccessToken = createId();
-      await locals.runtime.env.KV.put(
-        `approval_token:${approvalId}`,
+    // Send push notifications
+    const pushResult = await pushService.sendPushNotifications(
+      user,
+      notification,
+      {
+        approvalId,
         tempAccessToken,
-        { expirationTtl: 300 }, // 5 minutes in seconds
-      );
-    }
-
-    const userSubscriptions = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userEmail, user.email))
-      .all();
-
-    interface FailedPush {
-      subscriptionId: string;
-      reason: string;
-    }
-
-    const failedPushes: FailedPush[] = [];
-
-    const webPushService = new WebPushService(user.publicKey, user.privateKey, `mailto:${user.email}`);
-
-    const subscriptionService = new SubscriptionService(locals.runtime.env.DB);
-    const subscriptionsToRemove: string[] = [];
-
-    // Construct the message outside the loop
-    const message = JSON.stringify({
-      ...notification,
-      approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
-      approvalId: approvalId,
-      tempAccessToken: tempAccessToken,
-    });
-
-    // Check message size
-    if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
-      return new Response(JSON.stringify({ error: 'Message size exceeds 4KB limit' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    for (const sub of userSubscriptions) {
-      const subscription: PushSubscription = JSON.parse(sub.subscription);
-
-      try {
-        await webPushService.sendNotification(subscription, message, {
-          ttl: 60,
-          topic: mergedParams.topic || 'Default',
-          urgency: 'normal',
-        });
-      } catch (error) {
-        console.error(`Failed to send push notification to subscription ${sub.id}:`, error);
-        failedPushes.push({
-          subscriptionId: sub.id,
-          reason: (error as Error).message,
-        });
-
-        if (error instanceof Error && 'statusCode' in error && (error as any).statusCode === 410) {
-          subscriptionsToRemove.push(sub.id);
-        }
+        approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
+        topic: mergedParams.topic || 'Default',
       }
-    }
+    );
 
-    // when the server returns 410, means the subscription is expired
-    for (const subscriptionId of subscriptionsToRemove) {
-      const isDeleted = await subscriptionService.deleteSubscriptionById(subscriptionId);
-      if (isDeleted) {
-        console.log(`Removed expired subscription: ${subscriptionId}`);
-      } else {
-        console.error(`Failed to remove expired subscription: ${subscriptionId}`);
-      }
-    }
-
-    sendSSEvent(user.email, 'newNotification', {
-      ...notification,
-      approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
-      approvalId: approvalId,
-    });
-
-    if (failedPushes.length > 0) {
+    if (!pushResult.success) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Some push notifications failed to send',
-          failedPushes,
+          error: pushResult.error || 'Some push notifications failed to send',
+          failedPushes: pushResult.failedPushes,
         }),
         {
           status: 200,

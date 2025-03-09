@@ -19,6 +19,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
     .$defaultFn(() => createId()),
   content: text('content').notNull(),
   title: text('title'),
+  subtitle: text('subtitle'),
   category: text('category'),
   group: text('group'),
   userEmail: text('user_email').notNull(),
