@@ -303,7 +303,7 @@ const handleCancelDelete = () => {
         >
           <Card>
             <CardHeader class="pt-6 pb-2 px-6">
-              <div class="flex items-center gap-3">
+              <div class="flex items-center gap-2">
                 <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
                   <img
                     :src="props.notification.iconUrl"

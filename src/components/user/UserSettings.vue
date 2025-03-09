@@ -73,13 +73,12 @@ onMounted(async () => {
       masterKey.value = existingMasterKey;
     }
 
-    // Load notification icon preference with default value true
+    // First load from local storage with default value true
     showNotificationIcons.value = userPreferenceManager.getPreference('showNotificationIcons', true);
 
-    // Initialize userPreferenceManager if we have a DB connection
-    if (typeof window !== 'undefined' && props.userInfo.email) {
+    // Then fetch the latest preferences from server to ensure we're in sync
+    if (props.userInfo.email) {
       try {
-        // Fetch the latest preferences from server to ensure we're in sync
         const response = await fetch('/api/user-preferences', {
           method: 'GET',
           credentials: 'include',
@@ -95,6 +94,8 @@ onMounted(async () => {
 
             // Update local storage
             userPreferenceManager.saveLocalPreferences(preferences);
+
+            console.debug('Loaded preferences from server:', preferences);
           }
         }
       } catch (error) {
@@ -106,7 +107,8 @@ onMounted(async () => {
 });
 
 const toggleNotificationIcons = async (value: boolean) => {
-  showNotificationIcons.value = value;
+  // value is already set to showNotificationIcons.value via v-model
+  // so we don't need to set it again
 
   // Always sync with remote server
   try {
@@ -116,8 +118,22 @@ const toggleNotificationIcons = async (value: boolean) => {
       showNotificationIcons: value,
     });
 
-    // Then sync with server
-    await userPreferenceManager.syncPreference(props.userInfo.email, 'showNotificationIcons', value);
+    // Then send a direct API request to update the server
+    const response = await fetch('/api/user-preferences', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        key: 'showNotificationIcons',
+        value: value,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update preference on server');
+    }
 
     toast({
       title: value ? 'Icons Enabled' : 'Icons Disabled',
@@ -374,8 +390,8 @@ defineExpose({ openSettings });
                 </div>
                 <Switch
                   id="notification-icons"
-                  :checked="showNotificationIcons"
-                  @update:checked="toggleNotificationIcons"
+                  :model-value="showNotificationIcons"
+                  @update:model-value="toggleNotificationIcons"
                 />
               </div>
             </CardContent>
