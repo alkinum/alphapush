@@ -54,3 +54,13 @@ export const approvalProcesses = sqliteTable('approval_processes', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
+
+export const userPreferences = sqliteTable('user_preferences', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  userEmail: text('user_email').notNull().unique(),
+  preferences: text('preferences').notNull(), // 存储为 JSON 字符串
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
