@@ -7,7 +7,7 @@ import {
   ContextMenuPortal,
   useForwardPropsEmits,
 } from 'radix-vue';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/shadcn';
 
 const props = defineProps<ContextMenuContentProps & { class?: HTMLAttributes['class'] }>();
 const emits = defineEmits<ContextMenuContentEmits>();

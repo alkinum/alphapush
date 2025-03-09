@@ -12,6 +12,6 @@
   "framework": "astro",
   "aliases": {
     "components": "@/components",
-    "utils": "@/lib/utils"
+    "utils": "@/utils/shadcn"
   }
 }

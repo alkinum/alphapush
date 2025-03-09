@@ -19,7 +19,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/shadcn';
 import { setMasterKey, getMasterKey } from '@/utils/encryption';
 import { Badge } from '@/components/ui/badge';
 
