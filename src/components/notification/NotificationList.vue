@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Notification } from '@/types/notification';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
+import { StreamErrorCode } from '@/pages/api/stream';
 
 import Login from '../user/Login.vue';
 import NotificationCard from './NotificationCard.vue';
@@ -35,6 +36,17 @@ const retryCount = ref(0);
 const maxRetries = 3;
 
 let eventSource: EventSource | null = null;
+
+// Define error response type
+interface ErrorResponse {
+  error: string;
+  code: StreamErrorCode;
+}
+
+// Define user fingerprints interface
+interface UserFingerprints {
+  [userEmail: string]: string;
+}
 
 const fetchNotifications = async (page: number) => {
   if (isLoading.value || isLoadFailed.value) {
@@ -87,7 +99,20 @@ const connectSSE = async () => {
   }
 
   try {
-    const deviceFingerprint = await getCombinedFingerprint(user.value.email);
+    // Get fingerprints from storage
+    const userFingerprints = localStorage.getItem('userFingerprints');
+    let fingerprints: UserFingerprints = {};
+
+    try {
+      fingerprints = userFingerprints ? JSON.parse(userFingerprints) : {};
+    } catch (error) {
+      console.error('Error parsing stored fingerprints:', error);
+    }
+
+    // Get fingerprint for current user or generate a new one
+    const deviceFingerprint =
+      (fingerprints && fingerprints[user.value.email]) || (await getCombinedFingerprint(user.value.email));
+
     const sseUrl = `/api/stream?fingerprint=${encodeURIComponent(deviceFingerprint)}`;
 
     console.debug('Attempting to connect SSE:', sseUrl);
@@ -108,13 +133,60 @@ const connectSSE = async () => {
       }
     });
 
-    eventSource.addEventListener('error', (error) => {
-      console.error('SSE error:', error);
-      eventSource?.close();
-      setTimeout(() => {
-        console.debug('Attempting to reconnect SSE...');
-        connectSSE();
-      }, 5000);
+    eventSource.addEventListener('error', (event) => {
+      console.error('SSE error:', event);
+
+      // Check if the error is due to an HTTP error response
+      if (event.target && (event.target as EventSource).readyState === EventSource.CLOSED) {
+        // Try to get the error details from the response
+        fetch(sseUrl, { method: 'GET' })
+          .then(async (response) => {
+            if (!response.ok) {
+              const errorData = (await response.json()) as ErrorResponse;
+
+              // Check if it's an invalid fingerprint error
+              if (errorData.code === StreamErrorCode.INVALID_FINGERPRINT) {
+                console.debug('Invalid fingerprint detected in SSE connection');
+
+                // Dispatch an event to handle the error at the application level
+                window.dispatchEvent(
+                  new CustomEvent('SSEConnectionError', {
+                    detail: {
+                      error: errorData.error,
+                      code: errorData.code,
+                    },
+                  }),
+                );
+
+                // Don't try to reconnect immediately, let the event handler handle it
+                return;
+              }
+            }
+
+            // For other errors, try to reconnect
+            eventSource?.close();
+            setTimeout(() => {
+              console.debug('Attempting to reconnect SSE...');
+              connectSSE();
+            }, 5000);
+          })
+          .catch((error) => {
+            console.error('Error checking SSE connection status:', error);
+            // For network errors, try to reconnect
+            eventSource?.close();
+            setTimeout(() => {
+              console.debug('Attempting to reconnect SSE after fetch error...');
+              connectSSE();
+            }, 5000);
+          });
+      } else {
+        // For other types of errors, try to reconnect
+        eventSource?.close();
+        setTimeout(() => {
+          console.debug('Attempting to reconnect SSE...');
+          connectSSE();
+        }, 5000);
+      }
     });
   } catch (error) {
     console.error('Error setting up SSE:', error);
@@ -156,6 +228,15 @@ onMounted(() => {
       fetchNotifications(1);
     }
     window.addEventListener('scroll', handleScroll);
+
+    // Listen for reconnect event
+    document.addEventListener('reconnectSSE', () => {
+      console.debug('Reconnecting SSE after subscription update...');
+      if (eventSource) {
+        eventSource.close();
+      }
+      connectSSE();
+    });
   } else {
     console.debug('User not logged in, skipping SSE connection and initial fetch');
   }
@@ -166,6 +247,7 @@ onUnmounted(() => {
     eventSource.close();
   }
   window.removeEventListener('scroll', handleScroll);
+  document.removeEventListener('reconnectSSE', () => {});
 });
 
 watch(

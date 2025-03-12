@@ -2,7 +2,7 @@
 import { inject, ref } from 'vue';
 import type { ComputedRef, HTMLAttributes, Ref } from 'vue';
 import { Icon } from '@iconify/vue';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/shadcn';
 
 const props = defineProps<{
   class?: HTMLAttributes['class'];

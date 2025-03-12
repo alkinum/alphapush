@@ -19,6 +19,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
     .$defaultFn(() => createId()),
   content: text('content').notNull(),
   title: text('title'),
+  subtitle: text('subtitle'),
   category: text('category'),
   group: text('group'),
   userEmail: text('user_email').notNull(),
@@ -50,6 +51,16 @@ export const approvalProcesses = sqliteTable('approval_processes', {
   state: text('state')
     .notNull()
     .$default(() => 'pending'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const userPreferences = sqliteTable('user_preferences', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  userEmail: text('user_email').notNull().unique(),
+  preferences: text('preferences').notNull(), // 存储为 JSON 字符串
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

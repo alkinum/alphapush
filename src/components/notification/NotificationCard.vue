@@ -6,6 +6,7 @@ import { useSwipe } from '@vueuse/core';
 import { Icon } from '@iconify/vue';
 import { decrypt } from '@alkinum/alphapush-encryption';
 import { getMasterKey } from '@/utils/encryption';
+import { userPreferenceManager } from '@/services/userPreferenceService';
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,41 @@ const decryptionError = ref<string | null>(null);
 
 const LINE_HEIGHT = 24;
 const MAX_LINES = 10;
+
+// Check if notification icons should be displayed
+// Use a safe approach that works in both client and server environments
+const showIcons = computed(() => {
+  // During SSR, default to true
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  // In browser, use the preference manager with default value true
+  return userPreferenceManager.getPreference('showNotificationIcons', true);
+});
+
+// Compute a default title if none is provided
+const displayTitle = computed(() => {
+  if (props.notification.title) {
+    return props.notification.title;
+  }
+
+  // Use category or group as fallback title
+  if (props.notification.category) {
+    return props.notification.category;
+  }
+
+  if (props.notification.group) {
+    return props.notification.group;
+  }
+
+  // Default title if nothing else is available
+  return 'Notification';
+});
+
+const hasSubtitle = computed(() => {
+  return !!props.notification.subtitle;
+});
 
 const estimatedLineCount = computed(() => {
   if (props.notification.type !== 'encrypted') return 0;
@@ -173,71 +209,74 @@ const updateApprovalState = async (state: 'approved' | 'rejected') => {
 };
 
 onMounted(async () => {
-  isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  // Only run client-side code in the browser
+  if (typeof window !== 'undefined') {
+    isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-  if (content.value && content.value.scrollHeight > content.value.clientHeight) {
-    isTruncated.value = true;
-  } else {
-    isTruncated.value = false;
-  }
-
-  // Clear the query parameter
-  if (props.notification.highlight) {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('notificationId');
-    url.searchParams.delete('category');
-    url.searchParams.delete('group');
-    window.history.replaceState({}, '', url);
-  }
-
-  if (isMobile.value && cardRef.value) {
-    const { direction } = useSwipe(cardRef, {
-      threshold: 50,
-      onSwipe() {
-        if (direction.value === 'left') {
-          isSwiped.value = true;
-        } else if (direction.value === 'right') {
-          isSwiped.value = false;
-        }
-      },
-    });
-  }
-
-  // Check for approvalId and action in query parameters
-  const urlParams = new URLSearchParams(window.location.search);
-  const approvalId = urlParams.get('approvalId');
-  const action = urlParams.get('action')?.toLowerCase();
-
-  try {
-    if (approvalId === props.notification.approvalId && (action === 'approve' || action === 'reject')) {
-      await updateApprovalState(action === 'approve' ? 'approved' : 'rejected');
+    if (content.value && content.value.scrollHeight > content.value.clientHeight) {
+      isTruncated.value = true;
+    } else {
+      isTruncated.value = false;
     }
-  } catch (error) {
-    console.error('Error processing approval action:', error);
-  } finally {
-    // Remove approvalId and action from query parameters
-    const url = new URL(window.location.href);
-    url.searchParams.delete('approvalId');
-    url.searchParams.delete('action');
-    window.history.replaceState({}, '', url);
-  }
 
-  if (props.notification.type === 'encrypted') {
+    // Clear the query parameter
+    if (props.notification.highlight) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('notificationId');
+      url.searchParams.delete('category');
+      url.searchParams.delete('group');
+      window.history.replaceState({}, '', url);
+    }
+
+    if (isMobile.value && cardRef.value) {
+      const { direction } = useSwipe(cardRef, {
+        threshold: 50,
+        onSwipe() {
+          if (direction.value === 'left') {
+            isSwiped.value = true;
+          } else if (direction.value === 'right') {
+            isSwiped.value = false;
+          }
+        },
+      });
+    }
+
+    // Check for approvalId and action in query parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const approvalId = urlParams.get('approvalId');
+    const action = urlParams.get('action')?.toLowerCase();
+
     try {
-      const masterKey = await getMasterKey();
-      if (!masterKey) {
-        throw new Error('Master key not found');
+      if (approvalId === props.notification.approvalId && (action === 'approve' || action === 'reject')) {
+        await updateApprovalState(action === 'approve' ? 'approved' : 'rejected');
       }
-      const extraInfo = props.notification.extraInfo ? JSON.parse(props.notification.extraInfo) : {};
-      const nonce = extraInfo.nonce;
-      if (!nonce) {
-        throw new Error('Nonce not found in extra info');
-      }
-      const decrypted = await decrypt(props.notification.content, masterKey, nonce);
-      decryptedContent.value = decrypted;
     } catch (error) {
-      console.error('Decryption failed:', error);
-      decryptionError.value = 'Unable to decrypt content. Please check your encryption key or notification data.';
+      console.error('Error processing approval action:', error);
+    } finally {
+      // Remove approvalId and action from query parameters
+      const url = new URL(window.location.href);
+      url.searchParams.delete('approvalId');
+      url.searchParams.delete('action');
+      window.history.replaceState({}, '', url);
+    }
+
+    if (props.notification.type === 'encrypted') {
+      try {
+        const masterKey = await getMasterKey();
+        if (!masterKey) {
+          throw new Error('Master key not found');
+        }
+        const extraInfo = props.notification.extraInfo ? JSON.parse(props.notification.extraInfo) : {};
+        const nonce = extraInfo.nonce;
+        if (!nonce) {
+          throw new Error('Nonce not found in extra info');
+        }
+        const decrypted = await decrypt(props.notification.content, masterKey, nonce);
+        decryptedContent.value = decrypted;
+      } catch (error) {
+        console.error('Decryption failed:', error);
+        decryptionError.value = 'Unable to decrypt content. Please check your encryption key or notification data.';
+      }
     }
   }
 });
@@ -264,9 +303,24 @@ const handleCancelDelete = () => {
         >
           <Card>
             <CardHeader class="pt-6 pb-2 px-6">
-              <CardTitle>{{ notification.title }}</CardTitle>
+              <div class="flex items-center gap-2">
+                <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
+                  <img
+                    :src="props.notification.iconUrl"
+                    alt="Notification icon"
+                    class="w-6 h-6 object-contain rounded-sm"
+                    onerror="this.style.display='none'"
+                  />
+                </div>
+                <div class="flex-grow">
+                  <CardTitle>{{ displayTitle }}</CardTitle>
+                  <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
+                    {{ props.notification.subtitle }}
+                  </p>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent class="relative pt-2 pb-4">
+            <CardContent class="relative pt-1 pb-5">
               <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
                 <div class="space-y-1">
                   <Skeleton
@@ -336,7 +390,22 @@ const handleCancelDelete = () => {
       >
         <Card>
           <CardHeader class="pt-6 pb-2 px-6">
-            <CardTitle>{{ notification.title }}</CardTitle>
+            <div class="flex items-center gap-3">
+              <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
+                <img
+                  :src="props.notification.iconUrl"
+                  alt="Notification icon"
+                  class="w-6 h-6 object-contain rounded-sm"
+                  onerror="this.style.display='none'"
+                />
+              </div>
+              <div class="flex-grow">
+                <CardTitle>{{ displayTitle }}</CardTitle>
+                <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
+                  {{ props.notification.subtitle }}
+                </p>
+              </div>
+            </div>
           </CardHeader>
           <CardContent class="relative pt-2 pb-4">
             <template v-if="renderedContent === null && props.notification.type === 'encrypted'">

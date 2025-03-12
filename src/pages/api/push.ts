@@ -1,62 +1,73 @@
 import type { APIRoute } from 'astro';
-import { eq } from 'drizzle-orm';
-import type { PushSubscription } from '@block65/webcrypto-web-push';
-import { createId } from '@paralleldrive/cuid2';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
-import { userCredentials, pushNotifications, subscriptions } from '@/schema';
-import { WebPushService } from '@/services/webPushService';
-import { SubscriptionService } from '@/services/subscriptionService';
-import { ApprovalProcessService } from '@/services/approvalProcessService';
-import type { Notification } from '@/types/notification';
-import { isLocalNetworkUrl } from '@/utils/network';
+import { PushService } from '@/services/pushService';
 
-import { sendSSEvent } from './stream';
+/**
+ * Interface for all possible frontmatter parameters
+ */
+interface FrontmatterParams {
+  title?: string;
+  subtitle?: string;
+  category?: string;
+  group?: string;
+  icon_url?: string;
+  type?: string;
+  webhook_url?: string;
+  topic?: string;
+  extra?: Record<string, any>;
+}
 
 interface PushBody {
   pushToken: string;
   content: string;
-}
-
-type MarkdownHeader = Record<string, string>;
-
-const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
-
-function parseMarkdownHeader(content: string): MarkdownHeader {
-  const trimmedContent = content.trim();
-  const headerMatch = trimmedContent.match(/^---\s*\n([\s\S]*?)\n\s*---/);
-  if (!headerMatch) return {};
-
-  const header = headerMatch[1];
-  try {
-    return parseYaml(header) as MarkdownHeader;
-  } catch (error) {
-    console.error('Error parsing YAML header:', error);
-    return {};
-  }
+  // Direct parameters that can override frontmatter
+  title?: string;
+  subtitle?: string;
+  category?: string;
+  group?: string;
+  icon_url?: string;
+  type?: string;
+  webhook_url?: string;
+  topic?: string;
+  extra?: Record<string, any>;
 }
 
 /**
- * Checks if a webhook URL is valid and not a local network URL.
- * @param url The webhook URL to check
- * @returns An object with a boolean indicating if the URL is valid and a possible error message
+ * Parse markdown frontmatter using yaml parser
+ * @param content Markdown content with frontmatter
+ * @returns Parsed frontmatter and content
  */
-export function validateWebhookUrl(url: string): { isValid: boolean; error?: string } {
-  if (!url) {
-    return { isValid: false, error: 'Webhook URL is required' };
+function parseMarkdownHeader(content: string): { data: FrontmatterParams; content: string } {
+  const trimmedContent = content.trim();
+  // Match frontmatter between triple dashes
+  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n\s*---\s*\n/;
+  const match = trimmedContent.match(frontmatterRegex);
+
+  if (!match) {
+    // No frontmatter found, return empty data and original content
+    return { data: {}, content: trimmedContent };
   }
+
+  const [fullMatch, yamlContent] = match;
 
   try {
-    new URL(url);
+    // Parse the YAML content
+    const data = parseYaml(yamlContent) as FrontmatterParams;
+
+    // Remove frontmatter from content
+    const contentWithoutFrontmatter = trimmedContent.replace(fullMatch, '').trim();
+
+    return {
+      data,
+      content: contentWithoutFrontmatter
+    };
   } catch (error) {
-    return { isValid: false, error: 'Invalid URL format' };
+    console.error('Error parsing YAML frontmatter:', error);
+    // In case of parsing error, return empty data and content without frontmatter
+    const contentWithoutFrontmatter = trimmedContent.replace(frontmatterRegex, '').trim();
+    return { data: {}, content: contentWithoutFrontmatter || trimmedContent };
   }
-
-  if (isLocalNetworkUrl(url)) {
-    return { isValid: false, error: 'Local network URLs are not allowed for webhooks' };
-  }
-
-  return { isValid: true };
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -71,9 +82,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const db = getDb(locals.runtime.env.DB);
-    const approvalProcessService = new ApprovalProcessService(db);
+    const pushService = new PushService(db, locals.runtime.env);
 
-    const user = await db.select().from(userCredentials).where(eq(userCredentials.pushToken, body.pushToken)).get();
+    // Validate push token
+    const user = await pushService.validatePushToken(body.pushToken);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid push token' }), {
         status: 401,
@@ -81,13 +93,26 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const trimmedContent = body.content.trim();
-    const header = parseMarkdownHeader(trimmedContent);
-    const content = trimmedContent.replace(/^---\s*\n[\s\S]*?\n\s*---\s*\n/, '').trim();
+    // Parse frontmatter and content
+    const { data: frontmatterParams, content } = parseMarkdownHeader(body.content);
 
-    if (header.icon_url) {
+    // Merge direct parameters with frontmatter (direct parameters take precedence)
+    const mergedParams: FrontmatterParams = {
+      ...frontmatterParams,
+      ...(body.title && { title: body.title }),
+      ...(body.subtitle && { subtitle: body.subtitle }),
+      ...(body.category && { category: body.category }),
+      ...(body.group && { group: body.group }),
+      ...(body.icon_url && { icon_url: body.icon_url }),
+      ...(body.type && { type: body.type }),
+      ...(body.webhook_url && { webhook_url: body.webhook_url }),
+      ...(body.topic && { topic: body.topic }),
+      ...(body.extra && { extra: body.extra }),
+    };
+
+    if (mergedParams.icon_url) {
       try {
-        const url = new URL(header.icon_url);
+        const url = new URL(mergedParams.icon_url);
         if (url.protocol !== 'https:') {
           return new Response(JSON.stringify({ error: 'Icon URL must use HTTPS protocol' }), {
             status: 400,
@@ -103,155 +128,81 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     let extraInfo: Record<string, any> | undefined;
-    if (header.extra) {
-      if (typeof header.extra !== 'object' || header.extra === null || Array.isArray(header.extra)) {
+    if (mergedParams.extra) {
+      if (typeof mergedParams.extra !== 'object' || mergedParams.extra === null || Array.isArray(mergedParams.extra)) {
         return new Response(JSON.stringify({ error: 'Extra info must be a valid object' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      extraInfo = header.extra;
+      extraInfo = mergedParams.extra;
     }
 
     const notificationData = {
       content,
-      title: header.title,
-      category: header.category,
-      group: header.group,
+      title: mergedParams.title,
+      subtitle: mergedParams.subtitle,
+      category: mergedParams.category,
+      group: mergedParams.group,
       userEmail: user.email,
-      iconUrl: header.icon_url,
-      type: header.type,
+      iconUrl: mergedParams.icon_url,
+      type: mergedParams.type,
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
     };
 
-    let notification: Notification | undefined;
-    let approvalId: string | undefined;
-    let tempAccessToken: string | undefined;
-
-    // Insert notification
-    notification = await db.insert(pushNotifications).values(notificationData).returning().get();
+    // Create notification
+    const notification = await pushService.createNotification(notificationData);
 
     if (!notification) {
       throw new Error('Failed to create notification');
     }
 
-    if (header.type === 'approval-process') {
-      if (!header.webhook_url) {
+    let approvalId: string | undefined;
+    let tempAccessToken: string | undefined;
+
+    // Handle approval process if needed
+    if (mergedParams.type === 'approval-process') {
+      if (!mergedParams.webhook_url) {
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      // SSRF check
-      const { isValid, error } = validateWebhookUrl(header.webhook_url);
-      if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
-        return new Response(JSON.stringify({ error }), {
+      try {
+        const result = await pushService.createApprovalProcess(
+          notification,
+          mergedParams.webhook_url,
+          user.email
+        );
+        approvalId = result.approvalId;
+        tempAccessToken = result.tempAccessToken;
+      } catch (error) {
+        return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
+    }
 
-      // Insert approval process
-      const approvalProcess = await approvalProcessService.addApprovalProcess({
-        notificationId: notification.id,
-        webhookUrl: header.webhook_url,
-        userEmail: user.email,
-      });
-
-      if (!approvalProcess) {
-        throw new Error('Failed to create approval process');
-      }
-
-      approvalId = approvalProcess.id;
-
-      // Generate and store temporary access token
-      tempAccessToken = createId();
-      await locals.runtime.env.KV.put(
-        `approval_token:${approvalId}`,
+    // Send push notifications
+    const pushResult = await pushService.sendPushNotifications(
+      user,
+      notification,
+      {
+        approvalId,
         tempAccessToken,
-        { expirationTtl: 300 }, // 5 minutes in seconds
-      );
-    }
-
-    const userSubscriptions = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userEmail, user.email))
-      .all();
-
-    interface FailedPush {
-      subscriptionId: string;
-      reason: string;
-    }
-
-    const failedPushes: FailedPush[] = [];
-
-    const webPushService = new WebPushService(user.publicKey, user.privateKey, `mailto:${user.email}`);
-
-    const subscriptionService = new SubscriptionService(locals.runtime.env.DB);
-    const subscriptionsToRemove: string[] = [];
-
-    // Construct the message outside the loop
-    const message = JSON.stringify({
-      ...notification,
-      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
-      approvalId: approvalId,
-      tempAccessToken: tempAccessToken,
-    });
-
-    // Check message size
-    if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
-      return new Response(JSON.stringify({ error: 'Message size exceeds 4KB limit' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    for (const sub of userSubscriptions) {
-      const subscription: PushSubscription = JSON.parse(sub.subscription);
-
-      try {
-        await webPushService.sendNotification(subscription, message, {
-          ttl: 60,
-          topic: header.topic || 'Default',
-          urgency: 'normal',
-        });
-      } catch (error) {
-        console.error(`Failed to send push notification to subscription ${sub.id}:`, error);
-        failedPushes.push({
-          subscriptionId: sub.id,
-          reason: (error as Error).message,
-        });
-
-        if (error instanceof Error && 'statusCode' in error && (error as any).statusCode === 410) {
-          subscriptionsToRemove.push(sub.id);
-        }
+        approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
+        topic: mergedParams.topic || 'Default',
       }
-    }
+    );
 
-    // when the server returns 410, means the subscription is expired
-    for (const subscriptionId of subscriptionsToRemove) {
-      const isDeleted = await subscriptionService.deleteSubscriptionById(subscriptionId);
-      if (isDeleted) {
-        console.log(`Removed expired subscription: ${subscriptionId}`);
-      } else {
-        console.error(`Failed to remove expired subscription: ${subscriptionId}`);
-      }
-    }
-
-    sendSSEvent(user.email, 'newNotification', {
-      ...notification,
-      approvalState: header.type === 'approval-process' ? 'pending' : undefined,
-      approvalId: approvalId,
-    });
-
-    if (failedPushes.length > 0) {
+    if (!pushResult.success) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Some push notifications failed to send',
-          failedPushes,
+          error: pushResult.error || 'Some push notifications failed to send',
+          failedPushes: pushResult.failedPushes,
         }),
         {
           status: 200,
@@ -269,7 +220,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       notificationId: notification.id,
     };
 
-    if (header.type === 'approval-process' && approvalId) {
+    if (mergedParams.type === 'approval-process' && approvalId) {
       responseData.approvalId = approvalId;
     }
 

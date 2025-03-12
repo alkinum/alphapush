@@ -19,9 +19,11 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils/shadcn';
 import { setMasterKey, getMasterKey } from '@/utils/encryption';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { userPreferenceManager, type UserPreference } from '@/services/userPreferenceService';
 
 const { toast } = useToast();
 
@@ -30,6 +32,7 @@ const showResetVapidDialog = ref(false);
 const showResetPushTokenDialog = ref(false);
 const pushToken = ref<string | undefined>(undefined);
 const vapidPublicKey = ref<string | null>(null);
+const showNotificationIcons = ref(true);
 
 const props = defineProps<{
   initialPushToken?: string;
@@ -61,13 +64,90 @@ const masterKey = ref('');
 const showMasterKey = ref(false);
 
 onMounted(async () => {
-  pushToken.value = props.initialPushToken;
-  vapidPublicKey.value = localStorage.getItem('vapidPublicKey');
-  const existingMasterKey = await getMasterKey();
-  if (existingMasterKey) {
-    masterKey.value = existingMasterKey;
+  // Only run client-side code in the browser
+  if (typeof window !== 'undefined') {
+    pushToken.value = props.initialPushToken;
+    vapidPublicKey.value = localStorage.getItem('vapidPublicKey');
+    const existingMasterKey = await getMasterKey();
+    if (existingMasterKey) {
+      masterKey.value = existingMasterKey;
+    }
+
+    // First load from local storage with default value true
+    showNotificationIcons.value = userPreferenceManager.getPreference('showNotificationIcons', true);
+
+    // Then fetch the latest preferences from server to ensure we're in sync
+    if (props.userInfo.email) {
+      try {
+        const response = await fetch('/api/user-preferences', {
+          method: 'GET',
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = (await response.json()) as { preferences: UserPreference };
+          const preferences = data.preferences;
+
+          if (preferences) {
+            // Update local state with server values
+            showNotificationIcons.value = preferences.showNotificationIcons ?? true;
+
+            // Update local storage
+            userPreferenceManager.saveLocalPreferences(preferences);
+
+            console.debug('Loaded preferences from server:', preferences);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user preferences:', error);
+        // Continue with local preferences if server fetch fails
+      }
+    }
   }
 });
+
+const toggleNotificationIcons = async (value: boolean) => {
+  // value is already set to showNotificationIcons.value via v-model
+  // so we don't need to set it again
+
+  // Always sync with remote server
+  try {
+    // Save to local storage first for immediate UI response
+    userPreferenceManager.saveLocalPreferences({
+      ...(userPreferenceManager.getLocalPreferences() || { showNotificationIcons: true }),
+      showNotificationIcons: value,
+    });
+
+    // Then send a direct API request to update the server
+    const response = await fetch('/api/user-preferences', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        key: 'showNotificationIcons',
+        value: value,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update preference on server');
+    }
+
+    toast({
+      title: value ? 'Icons Enabled' : 'Icons Disabled',
+      description: value ? 'Notification icons will now be displayed.' : 'Notification icons will be hidden.',
+    });
+  } catch (error) {
+    console.error('Error syncing notification icon preference:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to save preference. Please try again.',
+      variant: 'destructive',
+    });
+  }
+};
 
 const copyPushToken = () => {
   if (!pushToken.value) {
@@ -248,6 +328,7 @@ defineExpose({ openSettings });
               </div>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Push Token</CardTitle>
@@ -294,6 +375,24 @@ defineExpose({ openSettings });
                     Warning: If the key is incorrect, all encrypted notifications will fail to decrypt.
                   </p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>UI Preferences</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0 space-y-4')">
+              <div class="flex items-center justify-between">
+                <div class="space-y-0.5">
+                  <Label for="notification-icons">Show Notification Icons</Label>
+                  <p class="text-xs text-muted-foreground">Display icons in notifications when available</p>
+                </div>
+                <Switch
+                  id="notification-icons"
+                  :model-value="showNotificationIcons"
+                  @update:model-value="toggleNotificationIcons"
+                />
               </div>
             </CardContent>
           </Card>
