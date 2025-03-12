@@ -141,6 +141,11 @@ self.addEventListener('push', async function (event) {
       }
       const decryptedContent = await decryptMessage(data.content, nonce);
       options.body = decryptedContent;
+
+      // If there's no title but we have decrypted content, store it for title generation
+      if (!data.title) {
+        data.decryptedContent = decryptedContent;
+      }
     } catch (error) {
       console.error('Decryption failed:', error);
       options.body = 'This is an encrypted notification. Please click the notification to view the details.';
@@ -156,8 +161,39 @@ self.addEventListener('push', async function (event) {
     options.actions = [{ action: 'detail', title: 'View Details' }];
   }
 
-  self.registration.showNotification(data.title, options);
+  // Handle notifications with no title
+  const notificationTitle = data.title || getDefaultTitle(data);
+  self.registration.showNotification(notificationTitle, options);
 });
+
+// Helper function to generate a default title when none is provided
+function getDefaultTitle(data) {
+  // For encrypted notifications, use decrypted content if available
+  if (data.type === 'encrypted' && data.decryptedContent) {
+    const words = data.decryptedContent.split(' ');
+    const preview = words.slice(0, 3).join(' ');
+    return preview + (words.length > 3 ? '...' : '');
+  }
+
+  // If we have a body, use the first few words as the title
+  if (data.body) {
+    const words = data.body.split(' ');
+    const preview = words.slice(0, 3).join(' ');
+    return preview + (words.length > 3 ? '...' : '');
+  }
+
+  // If we have a category or group, use that
+  if (data.category) {
+    return `New ${data.category} notification`;
+  }
+
+  if (data.group) {
+    return `New notification from ${data.group}`;
+  }
+
+  // Fallback to a generic title
+  return 'New notification';
+}
 
 self.addEventListener('notificationclick', function (event) {
   const notificationData = event.notification.data;
