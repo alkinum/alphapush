@@ -19,6 +19,11 @@ export default defineConfig({
     auth(),
   ],
   vite: {
+    build: {
+      rollupOptions: {
+        external: ['node:path'],
+      },
+    },
     ssr: {
       external: ['node:crypto', 'node:path'],
     },

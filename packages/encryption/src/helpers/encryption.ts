@@ -1,4 +1,4 @@
-import { LRUCache } from 'lru-cache';
+import LRUCache from 'lru-cache';
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;

@@ -6,7 +6,8 @@
       "@/*": ["./src/*"]
     },
     "jsx": "preserve",
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types"],
+    "skipLibCheck": true
   },
   "exclude": ["dist", "public"]
 }
