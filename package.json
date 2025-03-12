@@ -29,7 +29,7 @@
   "dependencies": {
     "@alkinum/alphapush-encryption": "file:./packages/encryption",
     "@astrojs/check": "^0.9.4",
-    "@astrojs/cloudflare": "^12.2.3",
+    "@astrojs/cloudflare": "^12.2.4",
     "@astrojs/tailwind": "^6.0.0",
     "@astrojs/vue": "^5.0.7",
     "@auth/core": "^0.37.3",
@@ -40,7 +40,7 @@
     "@radix-icons/vue": "^1.0.0",
     "@vueuse/core": "^12.8.2",
     "@vueuse/gesture": "^2.0.0",
-    "astro": "^5.4.2",
+    "astro": "^5.4.3",
     "auth-astro": "^4.2.0",
     "base64-arraybuffer": "^1.0.2",
     "class-variance-authority": "^0.7.1",
