@@ -1,0 +1,14 @@
+diff --git a/node_modules/auth-astro/src/integration.ts b/node_modules/auth-astro/src/integration.ts
+index 04262ae..2bd52d9 100644
+--- a/node_modules/auth-astro/src/integration.ts
++++ b/node_modules/auth-astro/src/integration.ts
+@@ -1,6 +1,8 @@
+ import type { AstroIntegration } from 'astro'
+ import { type AstroAuthConfig, virtualConfigModule } from './config'
+-import { dirname, join } from 'node:path'
++import path from 'path-browserify-esm'
++
++const { dirname, join } = path
+ 
+ export default (config: AstroAuthConfig = {}): AstroIntegration => ({
+ 	name: 'astro-auth',
