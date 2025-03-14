@@ -34,6 +34,30 @@ interface PushBody {
 }
 
 /**
+ * Interface for Bark API V2 format
+ * Based on https://github.com/Finb/bark-server/blob/master/docs/API_V2.md
+ */
+interface BarkPushBody {
+  device_key: string;
+  title?: string;
+  subtitle?: string;
+  body: string;
+  badge?: number;
+  sound?: string;
+  icon?: string;
+  group?: string;
+  url?: string;
+  copy?: string;
+  autoCopy?: string;
+  isArchive?: string;
+  level?: 'critical' | 'active' | 'timeSensitive' | 'passive';
+  volume?: string;
+  call?: string;
+  action?: string;
+  ciphertext?: string;
+}
+
+/**
  * Parse markdown frontmatter using yaml parser
  * @param content Markdown content with frontmatter
  * @returns Parsed frontmatter and content
@@ -70,9 +94,63 @@ function parseMarkdownHeader(content: string): { data: FrontmatterParams; conten
   }
 }
 
+/**
+ * Convert Bark API V2 format to our internal format
+ * @param barkBody Bark API V2 request body
+ * @returns Converted PushBody format
+ */
+function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
+  // Create extra object for Bark-specific parameters that don't have direct mappings
+  const extra: Record<string, any> = {};
+
+  if (barkBody.badge) extra.badge = barkBody.badge;
+  if (barkBody.sound) extra.sound = barkBody.sound;
+  if (barkBody.url) extra.url = barkBody.url;
+  if (barkBody.copy) extra.copy = barkBody.copy;
+  if (barkBody.autoCopy) extra.autoCopy = barkBody.autoCopy === '1';
+  if (barkBody.isArchive) extra.isArchive = barkBody.isArchive === '1';
+  if (barkBody.volume) extra.volume = barkBody.volume;
+  if (barkBody.call) extra.call = barkBody.call === '1';
+  if (barkBody.action) extra.action = barkBody.action;
+
+  // Use ciphertext as content if it exists, otherwise use body
+  const content = barkBody.ciphertext || barkBody.body;
+
+  return {
+    pushToken: barkBody.device_key,
+    content: content,
+    title: barkBody.title,
+    subtitle: barkBody.subtitle,
+    category: barkBody.level, // Map level to category
+    group: barkBody.group,
+    icon_url: barkBody.icon,
+    extra: Object.keys(extra).length > 0 ? extra : undefined
+  };
+}
+
+/**
+ * Detect if the request is in Bark API V2 format
+ * @param body Request body
+ * @returns True if the request is in Bark format
+ */
+function isBarkFormat(body: any): body is BarkPushBody {
+  return body && typeof body === 'object' &&
+    'device_key' in body &&
+    'body' in body &&
+    typeof body.body === 'string';
+}
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
-    const body = (await request.json()) as PushBody;
+    const requestBody = await request.json();
+
+    // Detect if the request is in Bark API V2 format and convert if needed
+    let body: PushBody;
+    if (isBarkFormat(requestBody)) {
+      body = convertBarkToPushBody(requestBody as BarkPushBody);
+    } else {
+      body = requestBody as PushBody;
+    }
 
     if (!body.pushToken || !body.content) {
       return new Response(JSON.stringify({ error: 'Invalid input parameters' }), {
