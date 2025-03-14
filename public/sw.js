@@ -129,6 +129,7 @@ self.addEventListener('push', async function (event) {
       approvalId: data.approvalId,
       createdAt: data.createdAt,
       tempAccessToken: data.tempAccessToken,
+      navigateUrl: data.navigate_url,
     },
   };
 
@@ -228,6 +229,26 @@ self.addEventListener('notificationclick', function (event) {
     url.searchParams.set('action', event.action); // Add action to URL
   }
 
+  // Check if navigateUrl exists and use it instead of default URL
+  if (notificationData.navigateUrl) {
+    try {
+      // Validate if the URL is valid
+      const navigateUrl = new URL(notificationData.navigateUrl);
+
+      // Check if the URL has a valid protocol (http or https)
+      if (navigateUrl.protocol === 'http:' || navigateUrl.protocol === 'https:') {
+        event.notification.close();
+        event.waitUntil(clients.openWindow(navigateUrl.toString()));
+        return;
+      } else {
+        console.warn('Invalid URL protocol:', navigateUrl.protocol);
+      }
+    } catch (error) {
+      console.warn('Invalid navigate URL:', notificationData.navigateUrl, error);
+    }
+  }
+
+  // If navigateUrl is not valid or doesn't exist, use the default URL
   if (event.action === 'detail' || !event.action) {
     url.searchParams.set('notificationId', notificationData.id);
     url.searchParams.set('category', notificationData.category);
