@@ -74,6 +74,7 @@ export class PushService {
     group?: string;
     userEmail: string;
     iconUrl?: string;
+    navigate_url?: string;
     type?: string;
     extraInfo?: string | null;
   }) {

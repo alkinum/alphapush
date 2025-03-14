@@ -1,0 +1,1 @@
+ALTER TABLE `push_notifications` ADD `navigate_url` text;

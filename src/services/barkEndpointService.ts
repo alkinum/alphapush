@@ -41,10 +41,11 @@ export class BarkEndpointService {
         content: params.body,
         title: params.title,
         subtitle: params.subtitle,
-        category: params.category,
+        category: params.level || params.category,
         group: params.group,
         userEmail: user.email,
         iconUrl: params.icon,
+        navigate_url: params.url,
         type: params.level === 'critical' ? 'critical' : undefined,
         extraInfo: this.buildExtraInfo(params),
       };
@@ -104,18 +105,8 @@ export class BarkEndpointService {
       hasExtra = true;
     }
 
-    if (params.url) {
-      extraInfo.url = params.url;
-      hasExtra = true;
-    }
-
     if (params.isArchive !== undefined) {
       extraInfo.isArchive = params.isArchive;
-      hasExtra = true;
-    }
-
-    if (params.level) {
-      extraInfo.level = params.level;
       hasExtra = true;
     }
 

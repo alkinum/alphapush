@@ -15,6 +15,7 @@ interface FrontmatterParams {
   type?: string;
   webhook_url?: string;
   topic?: string;
+  navigate_url?: string;
   extra?: Record<string, any>;
 }
 
@@ -30,6 +31,7 @@ interface PushBody {
   type?: string;
   webhook_url?: string;
   topic?: string;
+  navigate_url?: string;
   extra?: Record<string, any>;
 }
 
@@ -105,7 +107,6 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
 
   if (barkBody.badge) extra.badge = barkBody.badge;
   if (barkBody.sound) extra.sound = barkBody.sound;
-  if (barkBody.url) extra.url = barkBody.url;
   if (barkBody.copy) extra.copy = barkBody.copy;
   if (barkBody.autoCopy) extra.autoCopy = barkBody.autoCopy === '1';
   if (barkBody.isArchive) extra.isArchive = barkBody.isArchive === '1';
@@ -124,6 +125,7 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
     category: barkBody.level, // Map level to category
     group: barkBody.group,
     icon_url: barkBody.icon,
+    navigate_url: barkBody.url, // Map url to navigate_url
     extra: Object.keys(extra).length > 0 ? extra : undefined
   };
 }
@@ -190,6 +192,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...(body.type && { type: body.type }),
       ...(body.webhook_url && { webhook_url: body.webhook_url }),
       ...(body.topic && { topic: body.topic }),
+      ...(body.navigate_url && { navigate_url: body.navigate_url }),
       ...(body.extra && { extra: body.extra }),
     };
 
@@ -238,6 +241,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       iconUrl: mergedParams.icon_url,
       type: mergedParams.type,
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
+      navigateUrl: mergedParams.navigate_url,
     };
 
     // Create notification
