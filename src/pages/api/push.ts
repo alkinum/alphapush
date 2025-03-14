@@ -153,6 +153,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     if (!body.pushToken || !body.content) {
+      console.error('Push API error: Missing required parameters', {
+        hasToken: !!body.pushToken,
+        hasContent: !!body.content
+      });
       return new Response(JSON.stringify({ error: 'Invalid input parameters' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -165,6 +169,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Validate push token
     const user = await pushService.validatePushToken(body.pushToken);
     if (!user) {
+      console.error('Push API error: Invalid push token', { token: body.pushToken });
       return new Response(JSON.stringify({ error: 'Invalid push token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -192,12 +197,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
       try {
         const url = new URL(mergedParams.icon_url);
         if (url.protocol !== 'https:') {
+          console.error('Push API error: Icon URL must use HTTPS protocol', { url: mergedParams.icon_url });
           return new Response(JSON.stringify({ error: 'Icon URL must use HTTPS protocol' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
           });
         }
       } catch (error) {
+        console.error('Push API error: Invalid icon URL', { url: mergedParams.icon_url });
         return new Response(JSON.stringify({ error: 'Invalid icon URL' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -208,6 +215,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     let extraInfo: Record<string, any> | undefined;
     if (mergedParams.extra) {
       if (typeof mergedParams.extra !== 'object' || mergedParams.extra === null || Array.isArray(mergedParams.extra)) {
+        console.error('Push API error: Extra info must be a valid object', {
+          type: typeof mergedParams.extra,
+          isNull: mergedParams.extra === null,
+          isArray: Array.isArray(mergedParams.extra)
+        });
         return new Response(JSON.stringify({ error: 'Extra info must be a valid object' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -232,6 +244,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const notification = await pushService.createNotification(notificationData);
 
     if (!notification) {
+      console.error('Push API error: Failed to create notification', {
+        userEmail: user.email,
+        hasTitle: !!notificationData.title
+      });
       throw new Error('Failed to create notification');
     }
 
@@ -241,6 +257,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Handle approval process if needed
     if (mergedParams.type === 'approval-process') {
       if (!mergedParams.webhook_url) {
+        console.error('Push API error: Webhook URL is required for approval process');
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -256,6 +273,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
         approvalId = result.approvalId;
         tempAccessToken = result.tempAccessToken;
       } catch (error) {
+        console.error('Push API error: Failed to create approval process', {
+          error: (error as Error).message,
+          notificationId: notification.id
+        });
         return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -276,6 +297,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
 
     if (!pushResult.success) {
+      console.error('Push API error: Failed to send push notifications', {
+        error: pushResult.error,
+        failedPushesCount: pushResult.failedPushes?.length,
+        notificationId: notification.id
+      });
       return new Response(
         JSON.stringify({
           success: false,
@@ -307,7 +333,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in push API:', error);
+    console.error('Push API critical error:', error instanceof Error ? error.message : String(error));
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
