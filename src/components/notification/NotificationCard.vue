@@ -238,6 +238,11 @@ onMounted(async () => {
             isSwiped.value = false;
           }
         },
+        onSwipeEnd() {
+          if (direction.value === 'left') {
+            isSwiped.value = true;
+          }
+        },
       });
     }
 
@@ -458,6 +463,7 @@ const handleCancelDelete = () => {
         variant="destructive"
         size="icon"
         class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
+        :style="{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none' }"
         :class="{ 'fade-out': props.notification.isDeleting }"
         @click.stop="showDeleteDialog = true"
       >
@@ -469,7 +475,7 @@ const handleCancelDelete = () => {
   </div>
 </template>
 
-<style module>
+<style>
 .markdown-content {
   font-family:
     system-ui,
@@ -591,13 +597,19 @@ const handleCancelDelete = () => {
   transform: translateX(-48px);
 }
 
+.notification-card.swiped ~ .delete-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .delete-btn {
   z-index: 0;
   opacity: 0;
   transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
-.notification-card.swiped + .delete-btn {
+.delete-btn.visible {
   opacity: 1;
 }
 
