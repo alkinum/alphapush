@@ -33,6 +33,7 @@ const showResetPushTokenDialog = ref(false);
 const pushToken = ref<string | undefined>(undefined);
 const vapidPublicKey = ref<string | null>(null);
 const showNotificationIcons = ref(true);
+const isSendingTestPush = ref(false);
 
 const props = defineProps<{
   initialPushToken?: string;
@@ -175,6 +176,60 @@ const copyPushToken = () => {
       });
     },
   );
+};
+
+const sendTestPush = async () => {
+  if (!pushToken.value) {
+    toast({
+      title: 'Error',
+      description: 'No push token available to send test notification',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  try {
+    isSendingTestPush.value = true;
+
+    const response = await fetch('/api/push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        pushToken: pushToken.value,
+        content: 'This is a test notification from AlphaPush.',
+        title: 'Test Notification',
+        subtitle: 'Sent from your device',
+        category: 'test',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json()) as { error?: string };
+      throw new Error(errorData.error || 'Failed to send test notification');
+    }
+
+    const result = (await response.json()) as { success: boolean; error?: string };
+
+    if (result.success) {
+      toast({
+        title: 'Success',
+        description: 'Test notification sent successfully',
+      });
+    } else {
+      throw new Error(result.error || 'Failed to send test notification');
+    }
+  } catch (error) {
+    console.error('Error sending test notification:', error);
+    toast({
+      title: 'Error',
+      description: error instanceof Error ? error.message : 'Failed to send test notification',
+      variant: 'destructive',
+    });
+  } finally {
+    isSendingTestPush.value = false;
+  }
 };
 
 const resetVapidKeys = async () => {
@@ -341,6 +396,22 @@ defineExpose({ openSettings });
                 </div>
                 <Button @click="copyPushToken" variant="outline" size="icon" :disabled="!pushToken">
                   <Icon icon="mdi:content-copy" class="h-4 w-4" />
+                </Button>
+              </div>
+              <div class="mt-3 flex w-full">
+                <Button
+                  @click="sendTestPush"
+                  variant="secondary"
+                  size="sm"
+                  :disabled="!pushToken || isSendingTestPush"
+                  class="w-full"
+                >
+                  <Icon
+                    :icon="isSendingTestPush ? 'mdi:loading' : 'mdi:send'"
+                    class="h-4 w-4 mr-2"
+                    :class="{ 'animate-spin': isSendingTestPush }"
+                  />
+                  Send Test Notification
                 </Button>
               </div>
             </CardContent>
