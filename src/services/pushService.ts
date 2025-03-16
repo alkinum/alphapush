@@ -2,10 +2,11 @@ import { eq } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
-import { userCredentials, pushNotifications, subscriptions } from '@/schema';
+import { userCredentials, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
+import { NotificationService } from '@/services/notificationService';
 import type { Notification } from '@/types/notification';
 import { isLocalNetworkUrl } from '@/utils/network';
 import { sendSSEvent } from '@/pages/api/stream';
@@ -46,10 +47,12 @@ export function validateWebhookUrl(url: string): { isValid: boolean; error?: str
 export class PushService {
   private db: ReturnType<typeof getDb>;
   private env: any;
+  private notificationService: NotificationService;
 
   constructor(db: ReturnType<typeof getDb>, env: any) {
     this.db = db;
     this.env = env;
+    this.notificationService = new NotificationService(db);
   }
 
   /**
@@ -59,26 +62,6 @@ export class PushService {
    */
   async validatePushToken(pushToken: string) {
     return await this.db.select().from(userCredentials).where(eq(userCredentials.pushToken, pushToken)).get();
-  }
-
-  /**
-   * Create a notification in the database
-   * @param notificationData Notification data to insert
-   * @returns Created notification or undefined if failed
-   */
-  async createNotification(notificationData: {
-    content: string;
-    title?: string;
-    subtitle?: string;
-    category?: string;
-    group?: string;
-    userEmail: string;
-    iconUrl?: string;
-    navigate_url?: string;
-    type?: string;
-    extraInfo?: string | null;
-  }) {
-    return await this.db.insert(pushNotifications).values(notificationData).returning().get();
   }
 
   /**

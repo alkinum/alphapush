@@ -8,16 +8,18 @@
       @click="handleCategoryClick(category.id)"
     >
       {{ category.name }}
+      <span v-if="category.count !== undefined && category.count > 0" class="ml-1 text-xs text-muted-foreground">
+        ({{ category.count }})
+      </span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Button } from '@/components/ui/button';
-
 interface Category {
   id: string;
   name: string;
+  count?: number;
 }
 
 interface Props {
@@ -36,7 +38,7 @@ const handleCategoryClick = (categoryId: string) => {
 };
 </script>
 
-<style lnag="scss" scoped>
+<style scoped>
 /* Hide scrollbar for Chrome, Safari and Opera */
 .overflow-x-auto::-webkit-scrollbar {
   display: none;

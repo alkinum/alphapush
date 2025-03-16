@@ -2,7 +2,8 @@ import type { APIRoute } from 'astro';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
-import { clearFilterCache } from './notification-filters';
+import { NotificationService } from '@/services/notificationService';
+import type { Notification } from '@/types/notification';
 
 /**
  * Interface for all possible frontmatter parameters
@@ -168,6 +169,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     const db = getDb(locals.runtime.env.DB);
     const pushService = new PushService(db, locals.runtime.env);
+    const notificationService = new NotificationService(db);
 
     // Validate push token
     const user = await pushService.validatePushToken(body.pushToken);
@@ -240,13 +242,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       group: mergedParams.group,
       userEmail: user.email,
       iconUrl: mergedParams.icon_url,
+      navigate_url: mergedParams.navigate_url,
       type: mergedParams.type,
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
-      navigateUrl: mergedParams.navigate_url,
     };
 
-    // Create notification
-    const notification = await pushService.createNotification(notificationData);
+    // Create notification directly using notificationService instead of pushService
+    const notification = await notificationService.createNotification(notificationData);
 
     if (!notification) {
       console.error('Push API error: Failed to create notification', {
@@ -255,9 +257,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
       throw new Error('Failed to create notification');
     }
-
-    // 清除用户的过滤器缓存，确保下次获取时能看到新的分组和分类
-    clearFilterCache(user.email);
 
     let approvalId: string | undefined;
     let tempAccessToken: string | undefined;
@@ -273,8 +272,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
 
       try {
+        const notificationForApproval: Notification = {
+          ...notification,
+          category: mergedParams.category || null,
+          group: mergedParams.group || null,
+          createdAt: notification.createdAt || new Date(),
+          updatedAt: notification.updatedAt || new Date(),
+        };
+
         const result = await pushService.createApprovalProcess(
-          notification,
+          notificationForApproval,
           mergedParams.webhook_url,
           user.email
         );
@@ -293,9 +300,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     // Send push notifications
+    const notificationForPush: Notification = {
+      ...notification,
+      category: mergedParams.category || null,
+      group: mergedParams.group || null,
+      createdAt: notification.createdAt || new Date(),
+      updatedAt: notification.updatedAt || new Date(),
+    };
+
     const pushResult = await pushService.sendPushNotifications(
       user,
-      notification,
+      notificationForPush,
       {
         approvalId,
         tempAccessToken,

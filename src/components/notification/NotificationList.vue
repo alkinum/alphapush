@@ -12,14 +12,23 @@ import Login from '../user/Login.vue';
 import NotificationCard from './NotificationCard.vue';
 import NotificationGroupSwitch from './NotificationGroupSwitch.vue';
 
+// Extended notification type with UI-specific properties
+interface UINotification extends Notification {
+  isDeleting?: boolean;
+  isNew?: boolean;
+  highlight?: boolean;
+}
+
 interface Category {
   id: string;
   name: string;
+  count?: number;
 }
 
 interface Group {
   id: string;
   name: string;
+  count?: number;
 }
 
 interface Props {
@@ -33,16 +42,18 @@ interface Props {
   initialTotalPages: number;
   initialGroups?: Group[];
   initialCategories?: Category[];
+  categoriesByGroup?: Record<string, Category[]>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   initialGroups: () => [],
   initialCategories: () => [],
+  categoriesByGroup: () => ({ all: [] }),
 });
 
 const user = ref(props.session?.user);
 
-const notifications = ref<Notification[]>(props.initialNotifications);
+const notifications = ref<UINotification[]>(props.initialNotifications as UINotification[]);
 const totalPages = ref(props.initialTotalPages);
 const currentPage = ref(1);
 const initialLoading = ref(false);
@@ -304,8 +315,9 @@ const handleNewNotification = (newNotification: Notification) => {
     (currentGroup.value === 'all' || newNotification.group === currentGroup.value) &&
     (currentCategory.value === 'all' || newNotification.category === currentCategory.value)
   ) {
-    newNotification.isNew = true;
-    notifications.value.unshift(newNotification);
+    const uiNotification = newNotification as UINotification;
+    uiNotification.isNew = true;
+    notifications.value.unshift(uiNotification);
     setTimeout(() => {
       const index = notifications.value.findIndex((n) => n.id === newNotification.id);
       if (index !== -1) {
@@ -459,6 +471,7 @@ const highlightNotification = (notificationId: string) => {
           :initialCategory="currentCategory"
           :initialGroups="props.initialGroups"
           :initialCategories="props.initialCategories"
+          :categoriesByGroup="props.categoriesByGroup"
           @filterChange="handleFilterChange"
         />
 

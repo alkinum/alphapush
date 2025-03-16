@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { relations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 
 export const userCredentials = sqliteTable('user_credentials', {
@@ -13,6 +14,26 @@ export const userCredentials = sqliteTable('user_credentials', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
+export const categories = sqliteTable('categories', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  userEmail: text('user_email').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const groups = sqliteTable('groups', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  userEmail: text('user_email').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
 export const pushNotifications = sqliteTable('push_notifications', {
   id: text('id')
     .primaryKey()
@@ -20,8 +41,8 @@ export const pushNotifications = sqliteTable('push_notifications', {
   content: text('content').notNull(),
   title: text('title'),
   subtitle: text('subtitle'),
-  category: text('category'),
-  group: text('group'),
+  categoryId: text('category_id').references(() => categories.id),
+  groupId: text('group_id').references(() => groups.id),
   userEmail: text('user_email').notNull(),
   type: text('type'),
   iconUrl: text('icon_url'),
@@ -61,7 +82,26 @@ export const userPreferences = sqliteTable('user_preferences', {
     .primaryKey()
     .$defaultFn(() => createId()),
   userEmail: text('user_email').notNull().unique(),
-  preferences: text('preferences').notNull(), // 存储为 JSON 字符串
+  preferences: text('preferences').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
+
+export const categoriesRelations = relations(categories, ({ many }) => ({
+  notifications: many(pushNotifications),
+}));
+
+export const groupsRelations = relations(groups, ({ many }) => ({
+  notifications: many(pushNotifications),
+}));
+
+export const pushNotificationsRelations = relations(pushNotifications, ({ one }) => ({
+  category: one(categories, {
+    fields: [pushNotifications.categoryId],
+    references: [categories.id],
+  }),
+  group: one(groups, {
+    fields: [pushNotifications.groupId],
+    references: [groups.id],
+  }),
+}));

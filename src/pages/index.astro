@@ -5,83 +5,63 @@ import CookiePrivacyBanner from '@/components/common/CookiePrivacyBanner.vue';
 import Page from '@/components/common/Page.astro';
 import NotificationList from '@/components/notification/NotificationList.vue';
 import { getDb } from '@/db';
-import { pushNotifications } from '@/schema';
-import { eq, desc, sql } from 'drizzle-orm';
-import { formatName } from '@/utils/string';
+import { NotificationService } from '@/services/notificationService';
 import type { Notification } from '@/types/notification';
 
 const session = await getSession(Astro.request);
 const db = getDb(Astro.locals.runtime.env.DB);
+const notificationService = new NotificationService(db);
 
 let initialNotifications: Notification[] = [];
 let totalPages = 0;
-let initialGroups = [{ id: 'all', name: 'All Groups' }];
-let initialCategories = [{ id: 'all', name: 'All' }];
+let initialGroups: { id: string; name: string; count: number }[] = [{ id: 'all', name: 'All Groups', count: 0 }];
+let initialCategories: { id: string; name: string; count: number }[] = [{ id: 'all', name: 'All', count: 0 }];
+let categoriesByGroup: Record<string, { id: string; name: string; count: number }[]> = {
+  all: [{ id: 'all', name: 'All', count: 0 }],
+};
 
 if (session?.user?.email) {
   const userEmail = session.user.email;
 
-  // Fetch initial notifications
-  const [notificationsResult, totalCountResult] = await Promise.all([
-    db
-      .select()
-      .from(pushNotifications)
-      .where(eq(pushNotifications.userEmail, userEmail))
-      .orderBy(desc(pushNotifications.createdAt))
-      .limit(10)
-      .offset(0)
-      .all(),
-    db
-      .select({ count: sql`count(*)` })
-      .from(pushNotifications)
-      .where(eq(pushNotifications.userEmail, userEmail))
-      .get(),
-  ]);
+  // Fetch initial notifications using NotificationService
+  const notificationsResult = await notificationService.getNotifications(userEmail, {
+    page: 1,
+    pageSize: 10,
+  });
 
-  initialNotifications = notificationsResult;
-  const totalCount = totalCountResult?.count ?? 0;
-  totalPages = Math.ceil(Number(totalCount) / 10);
+  initialNotifications = notificationsResult.notifications;
+  totalPages = notificationsResult.totalPages;
 
-  // Get all distinct groups for the user
-  const groupsResult = await db
-    .select({
-      group: pushNotifications.group,
-    })
-    .from(pushNotifications)
-    .where(eq(pushNotifications.userEmail, userEmail))
-    .groupBy(pushNotifications.group)
-    .all();
+  // Get all groups for the user
+  const groups = await notificationService.getGroups(userEmail);
+  initialGroups = groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    count: typeof group.count === 'number' ? group.count : Number(group.count),
+  }));
 
-  // Get all distinct categories for the user
-  const categoriesResult = await db
-    .select({
-      category: pushNotifications.category,
-    })
-    .from(pushNotifications)
-    .where(eq(pushNotifications.userEmail, userEmail))
-    .groupBy(pushNotifications.category)
-    .all();
+  // Get all categories for the user
+  const categories = await notificationService.getCategories(userEmail);
+  initialCategories = categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    count: typeof category.count === 'number' ? category.count : Number(category.count),
+  }));
 
-  // Process results, add default "All" option
-  initialGroups = [
-    { id: 'all', name: 'All Groups' },
-    ...groupsResult
-      .filter((item) => item.group !== null)
-      .map((item) => ({
-        id: item.group as string,
-        name: formatName(item.group as string),
-      })),
-  ];
+  // Create categoriesByGroup map
+  categoriesByGroup = { all: initialCategories };
 
-  initialCategories = [
-    { id: 'all', name: 'All' },
-    ...categoriesResult
-      .filter((item) => item.category !== null)
-      .map((item) => ({
-        id: item.category as string,
-        name: formatName(item.category as string),
-      })),
-  ];
+  // Get categories for each specific group
+  for (const group of groups) {
+    if (group.id !== 'all') {
+      const groupCategories = await notificationService.getCategoriesByGroup(userEmail, group.name);
+      categoriesByGroup[group.id] = groupCategories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        count: typeof category.count === 'number' ? category.count : Number(category.count),
+      }));
+    }
+  }
 }
 
 // Prepare session object for component
@@ -103,6 +83,7 @@ const sessionForComponent = session?.user?.email
     initialTotalPages={totalPages}
     initialGroups={initialGroups}
     initialCategories={initialCategories}
+    categoriesByGroup={categoriesByGroup}
   />
   <CookiePrivacyBanner client:load />
 </Page>
