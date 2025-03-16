@@ -23,6 +23,10 @@ function isMobileDevice(ua: string) {
 }
 
 const isMobile = isMobileDevice(userAgent);
+
+// Check for notificationId in URL
+const url = new URL(Astro.request.url);
+const notificationId = url.searchParams.get('notificationId');
 ---
 
 <html class="dark" lang="en">
@@ -39,7 +43,12 @@ const isMobile = isMobileDevice(userAgent);
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="mobile-web-app-capable" content="yes" />
   </head>
-  <body class="min-h-screen overflow-x-hidden" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
+  <body
+    class="min-h-screen overflow-x-hidden"
+    data-user-logged-in={isLoggedIn}
+    data-user-email={userEmail}
+    data-notification-id={notificationId || ''}
+  >
     <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />
       <main class="w-full">

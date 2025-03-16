@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
+import { clearFilterCache } from './notification-filters';
 
 /**
  * Interface for all possible frontmatter parameters
@@ -254,6 +255,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
       throw new Error('Failed to create notification');
     }
+
+    // 清除用户的过滤器缓存，确保下次获取时能看到新的分组和分类
+    clearFilterCache(user.email);
 
     let approvalId: string | undefined;
     let tempAccessToken: string | undefined;

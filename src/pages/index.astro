@@ -4,50 +4,105 @@ import { getSession } from 'auth-astro/server';
 import CookiePrivacyBanner from '@/components/common/CookiePrivacyBanner.vue';
 import Page from '@/components/common/Page.astro';
 import NotificationList from '@/components/notification/NotificationList.vue';
+import { getDb } from '@/db';
+import { pushNotifications } from '@/schema';
+import { eq, desc, sql } from 'drizzle-orm';
+import { formatName } from '@/utils/string';
+import type { Notification } from '@/types/notification';
 
 const session = await getSession(Astro.request);
-let initialNotifications = [];
+const db = getDb(Astro.locals.runtime.env.DB);
+
+let initialNotifications: Notification[] = [];
 let totalPages = 0;
+let initialGroups = [{ id: 'all', name: 'All Groups' }];
+let initialCategories = [{ id: 'all', name: 'All' }];
 
-const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
-const isLogin = !!session?.user?.email;
-const isAllowedUser = isLogin && allowedEmails.includes(session?.user?.email);
+if (session?.user?.email) {
+  const userEmail = session.user.email;
 
-if (isLogin && !isAllowedUser) {
-  return Astro.redirect('/403');
+  // Fetch initial notifications
+  const [notificationsResult, totalCountResult] = await Promise.all([
+    db
+      .select()
+      .from(pushNotifications)
+      .where(eq(pushNotifications.userEmail, userEmail))
+      .orderBy(desc(pushNotifications.createdAt))
+      .limit(10)
+      .offset(0)
+      .all(),
+    db
+      .select({ count: sql`count(*)` })
+      .from(pushNotifications)
+      .where(eq(pushNotifications.userEmail, userEmail))
+      .get(),
+  ]);
+
+  initialNotifications = notificationsResult;
+  const totalCount = totalCountResult?.count ?? 0;
+  totalPages = Math.ceil(Number(totalCount) / 10);
+
+  // Get all distinct groups for the user
+  const groupsResult = await db
+    .select({
+      group: pushNotifications.group,
+    })
+    .from(pushNotifications)
+    .where(eq(pushNotifications.userEmail, userEmail))
+    .groupBy(pushNotifications.group)
+    .all();
+
+  // Get all distinct categories for the user
+  const categoriesResult = await db
+    .select({
+      category: pushNotifications.category,
+    })
+    .from(pushNotifications)
+    .where(eq(pushNotifications.userEmail, userEmail))
+    .groupBy(pushNotifications.category)
+    .all();
+
+  // Process results, add default "All" option
+  initialGroups = [
+    { id: 'all', name: 'All Groups' },
+    ...groupsResult
+      .filter((item) => item.group !== null)
+      .map((item) => ({
+        id: item.group as string,
+        name: formatName(item.group as string),
+      })),
+  ];
+
+  initialCategories = [
+    { id: 'all', name: 'All' },
+    ...categoriesResult
+      .filter((item) => item.category !== null)
+      .map((item) => ({
+        id: item.category as string,
+        name: formatName(item.category as string),
+      })),
+  ];
 }
 
-if (isLogin) {
-  const apiUrl = new URL('/api/notifications', Astro.url);
-  apiUrl.searchParams.set('page', '1');
-  apiUrl.searchParams.set('pageSize', '10');
-
-  const response = await fetch(apiUrl, {
-    headers: {
-      Cookie: Astro.request.headers.get('Cookie') || '',
-    },
-  });
-
-  if (response.ok) {
-    const data = (await response.json()) as { notifications: any[]; totalPages: number; totalCount: number };
-    const highlightedNotificationId = Astro.url.searchParams.get('notificationId');
-    initialNotifications = data.notifications.map((notification) => ({
-      ...notification,
-      highlight: notification.id === highlightedNotificationId,
-    }));
-    totalPages = data.totalPages;
-  } else {
-    console.error('Error fetching initial notifications:', await response.text());
-  }
-}
+// Prepare session object for component
+const sessionForComponent = session?.user?.email
+  ? {
+      user: {
+        email: session.user.email,
+        name: session.user.name ?? undefined,
+      },
+    }
+  : null;
 ---
 
 <Page>
   <NotificationList
     client:load
-    session={session?.user ? { user: { email: session.user.email ?? '', name: session.user.name ?? undefined } } : null}
+    session={sessionForComponent}
     initialNotifications={initialNotifications}
     initialTotalPages={totalPages}
+    initialGroups={initialGroups}
+    initialCategories={initialCategories}
   />
   <CookiePrivacyBanner client:load />
 </Page>

@@ -10,19 +10,35 @@ import { StreamErrorCode } from '@/pages/api/stream';
 
 import Login from '../user/Login.vue';
 import NotificationCard from './NotificationCard.vue';
+import NotificationGroupSwitch from './NotificationGroupSwitch.vue';
+
+interface Category {
+  id: string;
+  name: string;
+}
+
+interface Group {
+  id: string;
+  name: string;
+}
 
 interface Props {
   session: {
     user?: {
       email: string;
-      name?: string;
+      name?: string | null;
     } | null;
   } | null;
   initialNotifications: Notification[];
   initialTotalPages: number;
+  initialGroups?: Group[];
+  initialCategories?: Category[];
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  initialGroups: () => [],
+  initialCategories: () => [],
+});
 
 const user = ref(props.session?.user);
 
@@ -34,6 +50,77 @@ const isLoading = ref(false);
 const isLoadFailed = ref(false);
 const retryCount = ref(0);
 const maxRetries = 3;
+
+// Add filter state
+const currentGroup = ref('all');
+const currentCategory = ref('all');
+
+// Track known categories and groups to detect new ones
+const knownCategories = new Set<string>();
+const knownGroups = new Set<string>();
+
+/**
+ * Initialize the known categories and groups from the provided arrays
+ */
+function initializeKnownFilters(
+  categories: Array<{ id: string; name: string }>,
+  groups: Array<{ id: string; name: string }>,
+) {
+  // Clear existing sets
+  knownCategories.clear();
+  knownGroups.clear();
+
+  // Add all categories and groups to the sets
+  categories.forEach((category) => {
+    if (category.id !== 'all') {
+      knownCategories.add(category.id);
+    }
+  });
+
+  groups.forEach((group) => {
+    if (group.id !== 'all') {
+      knownGroups.add(group.id);
+    }
+  });
+}
+
+/**
+ * Process new notification and check for new categories or groups
+ */
+function processNewNotification(notification: any) {
+  // Check if the notification has a new category
+  if (notification.category && !knownCategories.has(notification.category)) {
+    knownCategories.add(notification.category);
+    // Dispatch event for new category
+    document.dispatchEvent(
+      new CustomEvent('newNotificationCategory', {
+        detail: {
+          category: notification.category,
+        },
+      }),
+    );
+  }
+
+  // Check if the notification has a new group
+  if (notification.group && !knownGroups.has(notification.group)) {
+    knownGroups.add(notification.group);
+    // Dispatch event for new group
+    document.dispatchEvent(
+      new CustomEvent('newNotificationGroup', {
+        detail: {
+          group: notification.group,
+        },
+      }),
+    );
+  }
+
+  // Dispatch event for the notification itself
+  document.dispatchEvent(
+    new CustomEvent('notificationReceived', {
+      detail: { notification },
+    }),
+  );
+}
 
 let eventSource: EventSource | null = null;
 
@@ -48,14 +135,18 @@ interface UserFingerprints {
   [userEmail: string]: string;
 }
 
-const fetchNotifications = async (page: number) => {
+const fetchNotifications = async (
+  page: number,
+  group: string = currentGroup.value,
+  category: string = currentCategory.value,
+) => {
   if (isLoading.value || isLoadFailed.value) {
     return;
   }
   isLoading.value = true;
 
   try {
-    const response = await fetch(`/api/notifications?page=${page}&pageSize=10`);
+    const response = await fetch(`/api/notifications?page=${page}&pageSize=10&group=${group}&category=${category}`);
     const data: { notifications: Notification[]; totalPages: number } = await response.json();
 
     if (page === 1) {
@@ -82,7 +173,7 @@ const fetchNotifications = async (page: number) => {
 
 const loadMoreNotifications = () => {
   if (currentPage.value < totalPages.value) {
-    fetchNotifications(currentPage.value + 1);
+    fetchNotifications(currentPage.value + 1, currentGroup.value, currentCategory.value);
   }
 };
 
@@ -127,6 +218,9 @@ const connectSSE = async () => {
       console.debug('Received raw SSE message:', event);
       try {
         const newNotification = JSON.parse(event.data);
+        // Process the notification with the shared handler
+        processNewNotification(newNotification);
+        // Handle the notification in the UI
         handleNewNotification(newNotification);
       } catch (error) {
         console.error('Error parsing SSE data:', error);
@@ -205,24 +299,41 @@ const handleNotificationDeleted = (deletedId: string) => {
 };
 
 const handleNewNotification = (newNotification: Notification) => {
-  newNotification.isNew = true;
-  notifications.value.unshift(newNotification);
-  setTimeout(() => {
-    const index = notifications.value.findIndex((n) => n.id === newNotification.id);
-    if (index !== -1) {
-      notifications.value[index].isNew = false;
-    }
-  }, 500); // This should match the duration of your animation
+  // Only add the notification if it matches the current filter
+  if (
+    (currentGroup.value === 'all' || newNotification.group === currentGroup.value) &&
+    (currentCategory.value === 'all' || newNotification.category === currentCategory.value)
+  ) {
+    newNotification.isNew = true;
+    notifications.value.unshift(newNotification);
+    setTimeout(() => {
+      const index = notifications.value.findIndex((n) => n.id === newNotification.id);
+      if (index !== -1) {
+        notifications.value[index].isNew = false;
+      }
+    }, 500); // This should match the duration of your animation
+  }
 };
 
 const retryFetchNotifications = () => {
   isLoadFailed.value = false;
   retryCount.value = 0;
-  fetchNotifications(currentPage.value);
+  fetchNotifications(currentPage.value, currentGroup.value, currentCategory.value);
+};
+
+// Handle filter changes
+const handleFilterChange = (group: string, category: string) => {
+  currentGroup.value = group;
+  currentCategory.value = category;
+  currentPage.value = 1; // Reset to first page
+  fetchNotifications(1, group, category);
 };
 
 onMounted(() => {
   if (user.value?.email) {
+    // Initialize known filters
+    initializeKnownFilters(props.initialCategories, props.initialGroups);
+
     connectSSE();
     if (notifications.value.length === 0) {
       fetchNotifications(1);
@@ -237,6 +348,15 @@ onMounted(() => {
       }
       connectSSE();
     });
+
+    // Check for notificationId in body data attribute
+    const notificationId = document.body.getAttribute('data-notification-id');
+
+    if (notificationId) {
+      console.debug(`Found notificationId in page data: ${notificationId}`);
+      // Fetch the specific notification to get its group and category
+      fetchNotificationDetails(notificationId);
+    }
   } else {
     console.debug('User not logged in, skipping SSE connection and initial fetch');
   }
@@ -262,12 +382,86 @@ watch(
     }
   },
 );
+
+// Function to fetch notification details by ID
+const fetchNotificationDetails = async (notificationId: string) => {
+  try {
+    const response = await fetch(`/api/notifications?id=${notificationId}`);
+    if (!response.ok) {
+      console.error('Failed to fetch notification details');
+      return;
+    }
+
+    const data = (await response.json()) as { notification?: Notification };
+    if (data.notification) {
+      const notification = data.notification;
+
+      // If notification has a group, select it
+      if (notification.group && notification.group !== currentGroup.value) {
+        currentGroup.value = notification.group;
+        // When changing group, reset category to 'all'
+        currentCategory.value = 'all';
+        // Fetch notifications with the new filter
+        fetchNotifications(1, notification.group, 'all');
+
+        // Highlight the notification
+        setTimeout(() => {
+          highlightNotification(notificationId);
+        }, 500);
+      } else {
+        // Just highlight the notification
+        highlightNotification(notificationId);
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching notification details:', error);
+  }
+};
+
+// Function to highlight a notification
+const highlightNotification = (notificationId: string) => {
+  // Find the notification in the current list
+  const index = notifications.value.findIndex((n) => n.id === notificationId);
+
+  if (index !== -1) {
+    // Set highlight flag - using type assertion since we know this is a UI-only property
+    (notifications.value[index] as Notification & { highlight?: boolean }).highlight = true;
+
+    // Scroll to the notification
+    setTimeout(() => {
+      const element = document.getElementById(`notification-${notificationId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      // Remove highlight after a delay
+      setTimeout(() => {
+        const updatedIndex = notifications.value.findIndex((n) => n.id === notificationId);
+        if (updatedIndex !== -1) {
+          (notifications.value[updatedIndex] as Notification & { highlight?: boolean }).highlight = false;
+        }
+      }, 3000);
+    }, 100);
+  } else {
+    // If notification not found in current list, try to fetch it
+    fetchNotifications(1, currentGroup.value, currentCategory.value);
+  }
+};
 </script>
 
 <template>
   <div class="flex flex-col items-center w-full">
     <div class="w-full pb-6 box-border">
       <template v-if="user">
+        <!-- Add the filter component -->
+        <NotificationGroupSwitch
+          :initialGroup="currentGroup"
+          :initialCategory="currentCategory"
+          :initialGroups="props.initialGroups"
+          :initialCategories="props.initialCategories"
+          @filterChange="handleFilterChange"
+        />
+
         <template v-if="!initialLoading">
           <TransitionGroup
             v-if="notifications.length > 0"

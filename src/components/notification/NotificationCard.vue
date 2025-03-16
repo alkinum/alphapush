@@ -35,6 +35,7 @@ const emit = defineEmits(['deleted']);
 
 const { toast } = useToast();
 const showDeleteDialog = ref(false);
+const isLoading = ref(false);
 
 const content = ref<HTMLElement | null>(null);
 const isTruncated = ref(false);
@@ -292,187 +293,137 @@ const handleCancelDelete = () => {
 </script>
 
 <template>
-  <div>
-    <ContextMenu v-if="!isMobile">
-      <ContextMenuTrigger>
-        <div
-          ref="cardRef"
-          class="w-full mb-4 overflow-hidden notification-card"
-          :class="{
-            'highlight-effect': props.notification.highlight,
-            swiped: isSwiped,
-            deleting: props.notification.isDeleting,
-            'new-notification': props.notification.isNew,
-          }"
-          @click="handleSwipeReset"
-        >
-          <Card>
-            <CardHeader class="pt-6 pb-2 px-6">
-              <div class="flex items-center gap-2">
-                <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
-                  <img
-                    :src="props.notification.iconUrl"
-                    alt="Notification icon"
-                    class="w-6 h-6 object-contain rounded-sm"
-                    onerror="this.style.display='none'"
-                  />
-                </div>
-                <div class="flex-grow">
-                  <CardTitle>{{ displayTitle }}</CardTitle>
-                  <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
-                    {{ props.notification.subtitle }}
-                  </p>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent class="relative pt-1 pb-5">
-              <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
-                <div class="space-y-1">
-                  <Skeleton
-                    v-for="(line, index) in skeletonLines"
-                    :key="index"
-                    :style="{ height: `${LINE_HEIGHT}px` }"
-                    :class="[`w-[${line.width}]`]"
-                  />
-                </div>
-              </template>
-              <div
-                v-else
-                ref="content"
-                class="markdown-content"
-                :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
-                v-html="renderedContent"
-              ></div>
-              <div
-                v-if="isLikelyTruncated && !isApprovalProcess"
-                class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
-              ></div>
-              <Button
-                v-if="isLikelyTruncated && !isApprovalProcess"
-                variant="ghost"
-                size="sm"
-                class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
-                @click="toggleContent"
-              >
-                {{ buttonText }}
-              </Button>
-            </CardContent>
-            <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
-              <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
-                <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
-                <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
-              </div>
-              <div v-else class="flex justify-end items-center w-full">
-                <Button size="sm" disabled class="w-full">
-                  {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
+  <div v-if="isLoading" class="w-full mb-4">
+    <Card>
+      <CardHeader class="pt-6 pb-2 px-6">
+        <div class="flex items-center gap-3">
+          <div class="flex-shrink-0">
+            <Skeleton class="w-6 h-6 rounded-sm" />
+          </div>
+          <div class="flex-grow">
+            <Skeleton class="h-5 w-32" />
+            <Skeleton v-if="Math.random() > 0.5" class="h-4 w-24 mt-1" />
+          </div>
         </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem @select="showDeleteDialog = true">
-          Delete
-          <ContextMenuShortcut>
-            <Icon icon="mdi:delete" class="w-4 h-4" />
-          </ContextMenuShortcut>
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-
-    <div class="relative" v-else>
-      <div
-        ref="cardRef"
-        class="w-full mb-4 overflow-hidden notification-card"
-        :class="{
-          'highlight-effect': props.notification.highlight,
-          swiped: isSwiped,
-          deleting: props.notification.isDeleting,
-          'new-notification': props.notification.isNew,
-        }"
-        @click="handleSwipeReset"
-      >
-        <Card>
-          <CardHeader class="pt-6 pb-2 px-6">
-            <div class="flex items-center gap-3">
-              <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
-                <img
-                  :src="props.notification.iconUrl"
-                  alt="Notification icon"
-                  class="w-6 h-6 object-contain rounded-sm"
-                  onerror="this.style.display='none'"
-                />
-              </div>
-              <div class="flex-grow">
-                <CardTitle>{{ displayTitle }}</CardTitle>
-                <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
-                  {{ props.notification.subtitle }}
-                </p>
-              </div>
+      </CardHeader>
+      <CardContent class="px-6 py-4">
+        <div class="space-y-2">
+          <Skeleton v-for="(line, index) in skeletonLines" :key="index" class="h-4" :class="line.width" />
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+  <div class="relative" v-else>
+    <div
+      ref="cardRef"
+      :id="`notification-${props.notification.id}`"
+      class="w-full mb-4 overflow-hidden notification-card"
+      :class="{
+        'highlight-effect': props.notification.highlight,
+        swiped: isSwiped,
+        deleting: props.notification.isDeleting,
+        'new-notification': props.notification.isNew,
+      }"
+      @click="handleSwipeReset"
+    >
+      <Card>
+        <CardHeader class="pt-6 pb-2 px-6">
+          <div class="flex items-center gap-3">
+            <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
+              <img
+                :src="props.notification.iconUrl"
+                alt="Notification icon"
+                class="w-6 h-6 object-contain rounded-sm"
+                onerror="this.style.display='none'"
+              />
             </div>
-          </CardHeader>
-          <CardContent class="relative pt-2 pb-4">
-            <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
-              <div class="space-y-1">
-                <Skeleton
-                  v-for="(line, index) in skeletonLines"
-                  :key="index"
-                  :style="{ height: `${LINE_HEIGHT}px` }"
-                  :class="[`w-[${line.width}]`]"
-                />
-              </div>
-            </template>
-            <div
-              v-else
-              ref="content"
-              class="markdown-content"
-              :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated }"
-              v-html="renderedContent"
-            ></div>
-            <div
-              v-show="isLikelyTruncated"
-              class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
-            ></div>
-            <Button
-              v-show="isLikelyTruncated"
-              variant="ghost"
-              size="sm"
-              class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
-              @click="toggleContent"
-            >
-              {{ buttonText }}
+            <div class="flex-grow">
+              <CardTitle>{{ displayTitle }}</CardTitle>
+              <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
+                {{ props.notification.subtitle }}
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent class="relative pt-2 pb-4">
+          <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
+            <div class="space-y-1">
+              <Skeleton
+                v-for="(line, index) in skeletonLines"
+                :key="index"
+                :style="{ height: `${LINE_HEIGHT}px` }"
+                :class="[`w-[${line.width}]`]"
+              />
+            </div>
+          </template>
+          <div
+            v-else
+            ref="content"
+            class="markdown-content"
+            :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
+            v-html="renderedContent"
+          ></div>
+          <div
+            v-if="isLikelyTruncated && !isApprovalProcess"
+            class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
+          ></div>
+          <Button
+            v-if="isLikelyTruncated && !isApprovalProcess"
+            variant="ghost"
+            size="sm"
+            class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
+            @click="toggleContent"
+          >
+            {{ buttonText }}
+          </Button>
+        </CardContent>
+        <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+          <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
+            <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
+            <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+          </div>
+          <div v-else class="flex justify-end items-center w-full">
+            <Button size="sm" disabled class="w-full">
+              {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
             </Button>
-          </CardContent>
-          <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
-            <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
-              <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
-              <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
-            </div>
-            <div v-else class="flex justify-end items-center w-full">
-              <Button size="sm" disabled class="w-full">
-                {{ approvalState ? approvalState.charAt(0).toUpperCase() + approvalState.slice(1) : 'Unknown State' }}
-              </Button>
-            </div>
-          </CardFooter>
-        </Card>
-      </div>
-
-      <Button
-        v-if="isMobile"
-        variant="destructive"
-        size="icon"
-        class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
-        :style="{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none' }"
-        :class="{ 'fade-out': props.notification.isDeleting }"
-        @click.stop="showDeleteDialog = true"
-      >
-        <Icon icon="mdi:delete" class="w-5 h-5" />
-      </Button>
+          </div>
+        </CardFooter>
+      </Card>
     </div>
 
-    <DeleteConfirmationDialog v-model:isOpen="showDeleteDialog" @confirm="handleDelete" @cancel="handleCancelDelete" />
+    <Button
+      v-if="isMobile"
+      variant="destructive"
+      size="icon"
+      class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
+      :style="{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none' }"
+      :class="{ 'fade-out': props.notification.isDeleting }"
+      @click.stop="showDeleteDialog = true"
+    >
+      <Icon icon="mdi:delete" class="w-5 h-5" />
+    </Button>
   </div>
+
+  <ContextMenu v-if="!isMobile">
+    <ContextMenuTrigger :disabled="true">
+      <!-- Empty trigger, actual card is outside -->
+    </ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem @select="showDeleteDialog = true">
+        Delete
+        <ContextMenuShortcut>
+          <Icon icon="mdi:delete" class="w-4 h-4" />
+        </ContextMenuShortcut>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  </ContextMenu>
+
+  <DeleteConfirmationDialog
+    :isOpen="showDeleteDialog"
+    @confirm="handleDelete"
+    @cancel="showDeleteDialog = false"
+    @update:isOpen="(value) => (showDeleteDialog = value)"
+  />
 </template>
 
 <style>
@@ -570,20 +521,25 @@ const handleCancelDelete = () => {
 }
 
 .highlight-effect {
-  animation: highlight 1.2s ease-in-out;
-  animation-delay: 200ms;
+  animation: highlight-pulse 3s ease-in-out;
 }
 
-@keyframes highlight {
+@keyframes highlight-pulse {
   0%,
   100% {
-    background-color: transparent;
+    box-shadow: 0 0 0 0 rgba(var(--primary), 0);
+  }
+  20% {
+    box-shadow: 0 0 0 8px rgba(var(--primary), 0.3);
   }
   40% {
-    background-color: hsl(var(--primary) / 0.1);
+    box-shadow: 0 0 0 4px rgba(var(--primary), 0.2);
   }
   60% {
-    background-color: hsl(var(--primary) / 0.1);
+    box-shadow: 0 0 0 8px rgba(var(--primary), 0.3);
+  }
+  80% {
+    box-shadow: 0 0 0 4px rgba(var(--primary), 0.2);
   }
 }
 
@@ -619,25 +575,32 @@ const handleCancelDelete = () => {
 }
 
 .notification-card.deleting {
-  transition:
-    transform 0.5s ease,
-    opacity 0.5s ease;
-  transform: translateX(-100%);
-  opacity: 0;
+  animation: slide-out 0.5s ease-in;
+}
+
+@keyframes slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
 }
 
 .notification-card.new-notification {
-  animation: fly-in 0.5s ease-out;
+  animation: slide-in 0.5s ease-out;
 }
 
-@keyframes fly-in {
+@keyframes slide-in {
   from {
-    opacity: 0;
     transform: translateX(100%);
+    opacity: 0;
   }
   to {
-    opacity: 1;
     transform: translateX(0);
+    opacity: 1;
   }
 }
 

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, desc, sql, and, or, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { pushNotifications } from '@/schema';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
@@ -30,14 +31,37 @@ export const GET: APIRoute = async ({ request, locals }) => {
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1', 10);
     const pageSize = parseInt(url.searchParams.get('pageSize') || '10', 10);
+    const group = url.searchParams.get('group') || 'all';
+    const category = url.searchParams.get('category') || 'all';
 
     const offset = (page - 1) * pageSize;
+
+    // Start with the base condition
+    let whereClause: SQL<unknown> = eq(pushNotifications.userEmail, userEmail);
+
+    // Add group filter if not 'all'
+    if (group !== 'all') {
+      const groupCondition = or(
+        eq(pushNotifications.group, group),
+        isNull(pushNotifications.group)
+      );
+      whereClause = and(whereClause, groupCondition) as SQL<unknown>;
+    }
+
+    // Add category filter if not 'all'
+    if (category !== 'all') {
+      const categoryCondition = or(
+        eq(pushNotifications.category, category),
+        isNull(pushNotifications.category)
+      );
+      whereClause = and(whereClause, categoryCondition) as SQL<unknown>;
+    }
 
     const [notificationsResult, totalCountResult] = await Promise.all([
       db
         .select()
         .from(pushNotifications)
-        .where(eq(pushNotifications.userEmail, userEmail))
+        .where(whereClause)
         .orderBy(desc(pushNotifications.createdAt))
         .limit(pageSize)
         .offset(offset)
@@ -45,7 +69,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
       db
         .select({ count: sql`count(*)` })
         .from(pushNotifications)
-        .where(eq(pushNotifications.userEmail, userEmail))
+        .where(whereClause)
         .get(),
     ]);
 
