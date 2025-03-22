@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getDb } from '@/db';
 import { BarkEndpointService, type BarkParams } from '@/services/barkEndpointService';
+import { logger } from '@/utils/logger';
 
 /**
  * Bark compatible endpoint for simple format: /:key/:body
@@ -19,10 +20,14 @@ import { BarkEndpointService, type BarkParams } from '@/services/barkEndpointSer
  * - isArchive: Whether to archive the notification
  */
 export const GET: APIRoute = async ({ params, request, locals }) => {
+  logger.debug(`Request received to /[pushToken]/[body] endpoint: ${request.url}`);
+
   try {
     const { pushToken, body } = params;
+    logger.debug(`Params extracted: pushToken=${pushToken}, body=${body}`);
 
     if (!pushToken || !body) {
+      logger.error(`Missing required parameters: pushToken=${pushToken}, body=${body}`);
       return new Response(JSON.stringify({ code: 400, message: 'Missing required parameters' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -31,14 +36,17 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
 
     // Parse URL segments - ensure we're working with an array
     const bodySegments: string[] = Array.isArray(body) ? body : [body];
+    logger.debug(`Body segments parsed:`, bodySegments);
 
     // For this endpoint, we only handle the /:key/:body format
     // The content is the first segment
     const content = bodySegments[0];
+    logger.debug(`Content extracted: ${content}`);
 
     // Parse query parameters
     const url = new URL(request.url);
     const queryParams = url.searchParams;
+    logger.debug(`Query parameters:`, Object.fromEntries(queryParams.entries()));
 
     // Build Bark parameters
     const barkParams: BarkParams = {
@@ -56,12 +64,16 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
       isArchive: queryParams.has('isArchive') ? queryParams.get('isArchive') === '1' : undefined,
     };
 
+    logger.debug(`Bark parameters created:`, barkParams);
+
     // Handle special parameters
     if (queryParams.has('call') && queryParams.get('call') === '1') {
       barkParams.sound = 'alarm';
+      logger.debug(`Call parameter detected, setting sound to 'alarm'`);
     }
 
     if (queryParams.has('ciphertext')) {
+      logger.error(`Encrypted message not supported: ciphertext=${queryParams.get('ciphertext')}`);
       // We don't support encrypted messages yet, return error
       return new Response(JSON.stringify({ code: 400, message: 'Encrypted messages are not supported yet' }), {
         status: 400,
@@ -70,23 +82,28 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
     }
 
     // Process the push notification
+    logger.debug(`Processing push for token: ${pushToken}`);
     const db = getDb(locals.runtime.env.DB);
     const barkService = new BarkEndpointService(db, locals.runtime.env);
     const result = await barkService.processBarkPush(pushToken, barkParams);
 
+    logger.debug(`Push processing result:`, result);
+
     if (!result.success) {
+      logger.error(`Failed to send notification: ${result.error}`);
       return new Response(JSON.stringify({ code: 400, message: result.error || 'Failed to send notification' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
+    logger.debug(`Successfully sent notification with ID: ${result.notificationId}`);
     return new Response(JSON.stringify({ code: 200, message: 'Success', notificationId: result.notificationId }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in Bark endpoint:', error);
+    logger.error(`Error in Bark endpoint:`, error);
     return new Response(JSON.stringify({ code: 500, message: 'Internal Server Error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -96,5 +113,6 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
 
 // Also support POST requests for compatibility
 export const POST: APIRoute = async (context) => {
+  logger.debug(`POST request received, forwarding to GET handler`);
   return GET(context);
 };

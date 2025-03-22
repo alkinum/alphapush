@@ -9,5 +9,5 @@
     "types": ["@cloudflare/workers-types"],
     "skipLibCheck": true
   },
-  "exclude": ["dist", "public"]
+  "exclude": ["dist", "public", "packages/encryption/dist"]
 }

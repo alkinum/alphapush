@@ -6,6 +6,8 @@ const NONCE_LENGTH = 12;
 const TAG_LENGTH = 128;
 
 // Create an LRU cache for derived keys
+// The type of LRUCache is not stable
+// @ts-ignore
 const keyCache = new LRUCache<string, CryptoKey>({
   max: 100,
   ttl: 1000 * 60 * 60,

@@ -4,6 +4,7 @@ import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
 import { NotificationService } from '@/services/notificationService';
 import type { Notification } from '@/types/notification';
+import { logger } from '@/utils/logger';
 
 /**
  * Interface for all possible frontmatter parameters
@@ -91,7 +92,7 @@ function parseMarkdownHeader(content: string): { data: FrontmatterParams; conten
       content: contentWithoutFrontmatter
     };
   } catch (error) {
-    console.error('Error parsing YAML frontmatter:', error);
+    logger.error('Error parsing YAML frontmatter:', error);
     // In case of parsing error, return empty data and content without frontmatter
     const contentWithoutFrontmatter = trimmedContent.replace(frontmatterRegex, '').trim();
     return { data: {}, content: contentWithoutFrontmatter || trimmedContent };
@@ -145,19 +146,23 @@ function isBarkFormat(body: any): body is BarkPushBody {
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
+  logger.debug('Push API request received');
+
   try {
     const requestBody = await request.json();
+    logger.debug('Request body received:', requestBody);
 
     // Detect if the request is in Bark API V2 format and convert if needed
     let body: PushBody;
     if (isBarkFormat(requestBody)) {
+      logger.debug('Detected Bark API V2 format, converting');
       body = convertBarkToPushBody(requestBody as BarkPushBody);
     } else {
       body = requestBody as PushBody;
     }
 
     if (!body.pushToken || !body.content) {
-      console.error('Push API error: Missing required parameters', {
+      logger.error('Push API error: Missing required parameters', {
         hasToken: !!body.pushToken,
         hasContent: !!body.content
       });
@@ -172,9 +177,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const notificationService = new NotificationService(db);
 
     // Validate push token
+    logger.debug('Validating push token');
     const user = await pushService.validatePushToken(body.pushToken);
     if (!user) {
-      console.error('Push API error: Invalid push token', { token: body.pushToken });
+      logger.error('Push API error: Invalid push token', { token: body.pushToken });
       return new Response(JSON.stringify({ error: 'Invalid push token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -182,7 +188,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     // Parse frontmatter and content
+    logger.debug('Parsing content frontmatter');
     const { data: frontmatterParams, content } = parseMarkdownHeader(body.content);
+    logger.debug('Frontmatter parsed:', frontmatterParams);
 
     // Merge direct parameters with frontmatter (direct parameters take precedence)
     const mergedParams: FrontmatterParams = {
@@ -203,14 +211,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
       try {
         const url = new URL(mergedParams.icon_url);
         if (url.protocol !== 'https:') {
-          console.error('Push API error: Icon URL must use HTTPS protocol', { url: mergedParams.icon_url });
+          logger.error('Push API error: Icon URL must use HTTPS protocol', { url: mergedParams.icon_url });
           return new Response(JSON.stringify({ error: 'Icon URL must use HTTPS protocol' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
           });
         }
       } catch (error) {
-        console.error('Push API error: Invalid icon URL', { url: mergedParams.icon_url });
+        logger.error('Push API error: Invalid icon URL', { url: mergedParams.icon_url });
         return new Response(JSON.stringify({ error: 'Invalid icon URL' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -221,7 +229,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     let extraInfo: Record<string, any> | undefined;
     if (mergedParams.extra) {
       if (typeof mergedParams.extra !== 'object' || mergedParams.extra === null || Array.isArray(mergedParams.extra)) {
-        console.error('Push API error: Extra info must be a valid object', {
+        logger.error('Push API error: Extra info must be a valid object', {
           type: typeof mergedParams.extra,
           isNull: mergedParams.extra === null,
           isArray: Array.isArray(mergedParams.extra)
@@ -247,11 +255,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
     };
 
+    // Create notification
+    logger.debug('Creating notification', {
+      userEmail: user.email,
+      type: notificationData.type
+    });
     // Create notification directly using notificationService instead of pushService
     const notification = await notificationService.createNotification(notificationData);
 
     if (!notification) {
-      console.error('Push API error: Failed to create notification', {
+      logger.error('Push API error: Failed to create notification', {
         userEmail: user.email,
         hasTitle: !!notificationData.title
       });
@@ -264,7 +277,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     // Handle approval process if needed
     if (mergedParams.type === 'approval-process') {
       if (!mergedParams.webhook_url) {
-        console.error('Push API error: Webhook URL is required for approval process');
+        logger.error('Push API error: Webhook URL is required for approval process');
         return new Response(JSON.stringify({ error: 'Webhook URL is required for approval process' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -272,6 +285,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
 
       try {
+        logger.debug('Creating approval process', {
+          notificationId: notification.id,
+          webhookUrl: mergedParams.webhook_url
+        });
         const notificationForApproval: Notification = {
           ...notification,
           category: mergedParams.category || null,
@@ -288,7 +305,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         approvalId = result.approvalId;
         tempAccessToken = result.tempAccessToken;
       } catch (error) {
-        console.error('Push API error: Failed to create approval process', {
+        logger.error('Push API error: Failed to create approval process', {
           error: (error as Error).message,
           notificationId: notification.id
         });
@@ -300,6 +317,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     // Send push notifications
+    logger.debug('Sending push notifications', {
+      notificationId: notification.id,
+      hasApprovalId: !!approvalId
+    });
     const notificationForPush: Notification = {
       ...notification,
       category: mergedParams.category || null,
@@ -320,7 +341,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
 
     if (!pushResult.success) {
-      console.error('Push API error: Failed to send push notifications', {
+      logger.error('Push API error: Failed to send push notifications', {
         error: pushResult.error,
         failedPushesCount: pushResult.failedPushes?.length,
         notificationId: notification.id
@@ -351,12 +372,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       responseData.approvalId = approvalId;
     }
 
+    logger.debug('Push API success', responseData);
     return new Response(JSON.stringify(responseData), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Push API critical error:', error instanceof Error ? error.message : String(error));
+    logger.error('Push API critical error:', error instanceof Error ? error.message : String(error));
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
