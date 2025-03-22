@@ -34,7 +34,7 @@ class Logger {
   /**
    * Format the log message with optional timestamp
    */
-  private formatMessage(level: LogLevel, message: string, ...args: any[]): string {
+  private formatMessage(level: LogLevel, message: string): string {
     const timestamp = this.includeTimestamp ? `[${new Date().toISOString()}] ` : '';
     return `${timestamp}[${level.toUpperCase()}] ${message}`;
   }
