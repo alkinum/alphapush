@@ -9,6 +9,7 @@ import { ApprovalProcessService } from '@/services/approvalProcessService';
 import type { Notification } from '@/types/notification';
 import { isLocalNetworkUrl } from '@/utils/network';
 import { sendSSEvent } from '@/pages/api/stream';
+import { logger } from '@/utils/logger';
 
 export const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
 
@@ -58,6 +59,7 @@ export class PushService {
    * @returns User or null if token is invalid
    */
   async validatePushToken(pushToken: string) {
+    logger.debug(`Validating push token: ${pushToken}`);
     return await this.db.select().from(userCredentials).where(eq(userCredentials.pushToken, pushToken)).get();
   }
 
@@ -78,6 +80,10 @@ export class PushService {
     type?: string;
     extraInfo?: string | null;
   }) {
+    logger.debug(`Creating notification for user: ${notificationData.userEmail}`, {
+      type: notificationData.type,
+      hasTitle: !!notificationData.title
+    });
     return await this.db.insert(pushNotifications).values(notificationData).returning().get();
   }
 
@@ -89,11 +95,17 @@ export class PushService {
    * @returns Object containing approvalId and tempAccessToken
    */
   async createApprovalProcess(notification: Notification, webhookUrl: string, userEmail: string) {
+    logger.debug(`Creating approval process for notification: ${notification.id}`, {
+      webhookUrl,
+      userEmail
+    });
+
     const approvalProcessService = new ApprovalProcessService(this.db);
 
     // SSRF check
     const { isValid, error } = validateWebhookUrl(webhookUrl);
     if (!isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true') {
+      logger.error(`Invalid webhook URL: ${error}`, { webhookUrl });
       throw new Error(error);
     }
 
@@ -105,6 +117,7 @@ export class PushService {
     });
 
     if (!approvalProcess) {
+      logger.error(`Failed to create approval process for notification: ${notification.id}`);
       throw new Error('Failed to create approval process');
     }
 
@@ -116,6 +129,7 @@ export class PushService {
       { expirationTtl: 300 }, // 5 minutes in seconds
     );
 
+    logger.debug(`Approval process created: ${approvalProcess.id}`);
     return {
       approvalId: approvalProcess.id,
       tempAccessToken
@@ -140,6 +154,12 @@ export class PushService {
       urgency?: 'normal' | 'high';
     } = {}
   ): Promise<PushResult> {
+    logger.debug(`Sending push notifications for user: ${user.email}`, {
+      notificationId: notification.id,
+      approvalId: options.approvalId,
+      topic: options.topic
+    });
+
     try {
       // Get user subscriptions
       const userSubscriptions = await this.db
@@ -147,6 +167,8 @@ export class PushService {
         .from(subscriptions)
         .where(eq(subscriptions.userEmail, user.email))
         .all();
+
+      logger.debug(`Found ${userSubscriptions.length} subscriptions for user: ${user.email}`);
 
       const failedPushes: Array<{ subscriptionId: string; reason: string }> = [];
       const webPushService = new WebPushService(user.publicKey, user.privateKey, `mailto:${user.email}`);
@@ -163,6 +185,7 @@ export class PushService {
 
       // Check message size
       if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
+        logger.error(`Message size exceeds 4KB limit for notification: ${notification.id}`);
         return { success: false, error: 'Message size exceeds 4KB limit' };
       }
 
@@ -171,13 +194,14 @@ export class PushService {
         const subscription: PushSubscription = JSON.parse(sub.subscription);
 
         try {
+          logger.debug(`Sending notification to subscription: ${sub.id}`);
           await webPushService.sendNotification(subscription, message, {
             ttl: 60,
             topic: options.topic || 'Default',
             urgency: options.urgency || 'normal',
           });
         } catch (error) {
-          console.error(`Failed to send push notification to subscription ${sub.id}:`, error);
+          logger.error(`Failed to send push notification to subscription ${sub.id}:`, error);
           failedPushes.push({
             subscriptionId: sub.id,
             reason: (error as Error).message,
@@ -191,11 +215,12 @@ export class PushService {
 
       // Clean up expired subscriptions
       for (const subscriptionId of subscriptionsToRemove) {
+        logger.debug(`Removing expired subscription: ${subscriptionId}`);
         const isDeleted = await subscriptionService.deleteSubscriptionById(subscriptionId);
         if (isDeleted) {
-          console.log(`Removed expired subscription: ${subscriptionId}`);
+          logger.info(`Removed expired subscription: ${subscriptionId}`);
         } else {
-          console.error(`Failed to remove expired subscription: ${subscriptionId}`);
+          logger.error(`Failed to remove expired subscription: ${subscriptionId}`);
         }
       }
 
@@ -208,6 +233,11 @@ export class PushService {
 
       // Return result
       if (failedPushes.length > 0) {
+        logger.warn(`Some push notifications failed to send for notification: ${notification.id}`, {
+          failedCount: failedPushes.length,
+          totalCount: userSubscriptions.length
+        });
+
         return {
           success: false,
           error: 'Some push notifications failed to send',
@@ -217,13 +247,14 @@ export class PushService {
         };
       }
 
+      logger.debug(`Successfully sent all push notifications for notification: ${notification.id}`);
       return {
         success: true,
         notificationId: notification.id,
         approvalId: options.approvalId,
       };
     } catch (error) {
-      console.error('Error in push service:', error);
+      logger.error(`Error in push service for notification: ${notification.id}:`, error);
       return { success: false, error: 'Internal Server Error' };
     }
   }
