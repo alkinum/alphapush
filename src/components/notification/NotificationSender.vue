@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface Session {
   user?: {
@@ -54,6 +55,7 @@ const category = ref('');
 const url = ref('');
 const icon = ref('');
 const isSubmitting = ref(false);
+const preserveInputs = ref(true); // Default to true for preserving inputs
 
 // Handle new push token event
 const handleNewPushToken = (event: CustomEvent) => {
@@ -71,6 +73,21 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('newPushToken', handleNewPushToken as EventListener);
 });
+
+// Clear form function
+function clearForm() {
+  title.value = '';
+  body.value = '';
+  group.value = '';
+  category.value = '';
+  url.value = '';
+  icon.value = '';
+
+  toast({
+    title: 'Form Cleared',
+    description: 'All input fields have been cleared',
+  });
+}
 
 // Send notification
 async function sendNotification() {
@@ -139,12 +156,15 @@ async function sendNotification() {
         description: `Notification sent successfully (ID: ${result.notificationId})`,
       });
 
-      // Clear form fields except push token
-      title.value = '';
-      body.value = '';
-      category.value = '';
-      url.value = '';
-      icon.value = '';
+      // Clear form fields if preserve inputs is not checked
+      if (!preserveInputs.value) {
+        title.value = '';
+        body.value = '';
+        category.value = '';
+        group.value = '';
+        url.value = '';
+        icon.value = '';
+      }
     } else {
       toast({
         title: 'Error',
@@ -211,11 +231,17 @@ async function sendNotification() {
             <Label for="icon">Icon URL (Optional)</Label>
             <Input id="icon" v-model="icon" type="url" placeholder="URL to an icon image" />
           </div>
+
+          <div class="flex items-center space-x-2">
+            <Checkbox id="preserve-inputs" v-model:checked="preserveInputs" />
+            <Label for="preserve-inputs" class="cursor-pointer">Preserve inputs after sending</Label>
+          </div>
         </form>
       </CardContent>
 
-      <CardFooter>
-        <Button type="submit" @click="sendNotification" :disabled="isSubmitting" class="w-full">
+      <CardFooter class="flex justify-between gap-4">
+        <Button variant="outline" @click="clearForm" type="button" class="w-1/3"> Clear Form </Button>
+        <Button type="submit" @click="sendNotification" :disabled="isSubmitting" class="w-2/3">
           {{ isSubmitting ? 'Sending...' : 'Send Notification' }}
         </Button>
       </CardFooter>

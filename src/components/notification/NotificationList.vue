@@ -206,17 +206,14 @@ watch(
         />
 
         <template v-if="!initialLoading">
-          <TransitionGroup
-            v-if="notifications.length > 0"
-            name="notification-list"
-            tag="div"
-            class="space-y-4"
-            id="notification-list"
-          >
-            <div v-for="notification in notifications" :key="notification.id">
-              <NotificationCard :notification="notification" @deleted="handleNotificationDeleted" />
-            </div>
-          </TransitionGroup>
+          <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
+            <NotificationCard
+              v-for="notification in notifications"
+              :key="notification.id"
+              :notification="notification"
+              @deleted="handleNotificationDeleted"
+            />
+          </div>
           <Card v-else>
             <CardContent class="flex items-center justify-center p-6">
               <p class="text-muted-foreground">There's no notification here...</p>
@@ -242,23 +239,4 @@ watch(
   </div>
 </template>
 
-<style>
-.notification-list-enter-active,
-.notification-list-leave-active {
-  transition: all 0.5s ease;
-}
-
-.notification-list-enter-from {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-.notification-list-leave-to {
-  opacity: 0;
-  transform: translateX(-100%);
-}
-
-.notification-list-move {
-  transition: transform 0.5s ease;
-}
-</style>
+<style></style>

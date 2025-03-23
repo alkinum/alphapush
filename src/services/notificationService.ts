@@ -10,8 +10,8 @@ export interface NotificationCreateData {
   content: string;
   title?: string;
   subtitle?: string;
-  categoryId?: string;
-  groupId?: string;
+  category?: string;
+  group?: string;
   userEmail: string;
   iconUrl?: string;
   navigate_url?: string;
@@ -23,8 +23,8 @@ export interface NotificationUpdateData {
   content?: string;
   title?: string;
   subtitle?: string;
-  categoryId?: string;
-  groupId?: string;
+  category?: string;
+  group?: string;
   iconUrl?: string;
   navigate_url?: string;
   type?: string;
@@ -257,8 +257,8 @@ export class NotificationService {
   async createNotification(data: NotificationCreateData): Promise<Notification | undefined> {
     logger.debug(`Creating notification for user ${data.userEmail}: ${JSON.stringify({
       title: data.title,
-      categoryId: data.categoryId,
-      groupId: data.groupId
+      category: data.category,
+      group: data.group
     })}`);
 
     try {
@@ -267,51 +267,53 @@ export class NotificationService {
       let groupId: string | null = null;
 
       // If group is provided, get or create the group
-      if (data.groupId) {
-        logger.debug(`Processing group ID: ${data.groupId}`);
-        // Check if it's a valid UUID for an existing group
+      if (data.group) {
+        logger.debug(`Processing group name: ${data.group}`);
+
+        // Check if the group exists with this name
         const existingGroup = await this.db
           .select()
           .from(groups)
-          .where(and(eq(groups.userEmail, data.userEmail), eq(groups.id, data.groupId)))
+          .where(and(eq(groups.userEmail, data.userEmail), eq(groups.name, data.group)))
           .get();
 
         if (existingGroup) {
           groupId = existingGroup.id;
-          logger.debug(`Using existing group ID: ${groupId}`);
-        } else if (data.groupId !== 'all') {
-          // If not found and not 'all', create with name = id (temporary)
-          const newGroup = await this.getOrCreateGroup(data.userEmail, data.groupId);
+          logger.debug(`Using existing group ID: ${groupId} for name: ${data.group}`);
+        } else if (data.group !== 'all') {
+          // If not found and not 'all', create a new group with the given name
+          const newGroup = await this.getOrCreateGroup(data.userEmail, data.group);
           if (newGroup) {
             groupId = newGroup.id;
-            logger.debug(`Created new group with ID: ${groupId}`);
+            logger.debug(`Created new group with ID: ${groupId} for name: ${data.group}`);
           }
         }
       }
 
       // If category is provided, get or create the category
-      if (data.categoryId && groupId) {
-        logger.debug(`Processing category ID: ${data.categoryId}`);
-        // Check if it's a valid UUID for an existing category
+      if (data.category && groupId) {
+        logger.debug(`Processing category name: ${data.category}`);
+
+        // Check if the category exists with this name in the group
         const existingCategory = await this.db
           .select()
           .from(categories)
           .where(and(
             eq(categories.userEmail, data.userEmail),
-            eq(categories.id, data.categoryId),
+            eq(categories.name, data.category),
             eq(categories.groupId, groupId)
           ))
           .get();
 
         if (existingCategory) {
           categoryId = existingCategory.id;
-          logger.debug(`Using existing category ID: ${categoryId}`);
-        } else if (data.categoryId !== 'all') {
-          // If not found and not 'all', create with name = id (temporary)
-          const newCategory = await this.getOrCreateCategory(data.userEmail, data.categoryId, groupId);
+          logger.debug(`Using existing category ID: ${categoryId} for name: ${data.category}`);
+        } else if (data.category !== 'all') {
+          // If not found and not 'all', create a new category with the given name
+          const newCategory = await this.getOrCreateCategory(data.userEmail, data.category, groupId);
           if (newCategory) {
             categoryId = newCategory.id;
-            logger.debug(`Created new category with ID: ${categoryId}`);
+            logger.debug(`Created new category with ID: ${categoryId} for name: ${data.category}`);
           }
         }
       }
@@ -420,26 +422,26 @@ export class NotificationService {
       let groupId = oldNotification.groupId;
 
       // If group is provided, update the group ID
-      if (data.groupId !== undefined) {
-        if (data.groupId && data.groupId !== 'all') {
-          logger.debug(`Updating to group ID: ${data.groupId}`);
+      if (data.group !== undefined) {
+        if (data.group && data.group !== 'all') {
+          logger.debug(`Updating to group name: ${data.group}`);
 
-          // Check if it's a valid UUID for an existing group
+          // Check if the group exists with this name
           const existingGroup = await this.db
             .select()
             .from(groups)
-            .where(and(eq(groups.userEmail, userEmail), eq(groups.id, data.groupId)))
+            .where(and(eq(groups.userEmail, userEmail), eq(groups.name, data.group)))
             .get();
 
           if (existingGroup) {
             groupId = existingGroup.id;
-            logger.debug(`Using existing group ID: ${groupId}`);
+            logger.debug(`Using existing group ID: ${groupId} for name: ${data.group}`);
           } else {
-            // If not found, create with name = id (temporary)
-            const newGroup = await this.getOrCreateGroup(userEmail, data.groupId);
+            // If not found, create a new group with the given name
+            const newGroup = await this.getOrCreateGroup(userEmail, data.group);
             if (newGroup) {
               groupId = newGroup.id;
-              logger.debug(`Created new group with ID: ${groupId}`);
+              logger.debug(`Created new group with ID: ${groupId} for name: ${data.group}`);
             }
           }
         } else {
@@ -451,37 +453,37 @@ export class NotificationService {
       }
 
       // If category is provided, update the category ID
-      if (data.categoryId !== undefined && groupId) {
-        if (data.categoryId && data.categoryId !== 'all') {
-          logger.debug(`Updating to category ID: ${data.categoryId}`);
+      if (data.category !== undefined && groupId) {
+        if (data.category && data.category !== 'all') {
+          logger.debug(`Updating to category name: ${data.category}`);
 
-          // Check if it's a valid UUID for an existing category
+          // Check if the category exists with this name in the group
           const existingCategory = await this.db
             .select()
             .from(categories)
             .where(and(
               eq(categories.userEmail, userEmail),
-              eq(categories.id, data.categoryId),
+              eq(categories.name, data.category),
               eq(categories.groupId, groupId)
             ))
             .get();
 
           if (existingCategory) {
             categoryId = existingCategory.id;
-            logger.debug(`Using existing category ID: ${categoryId}`);
+            logger.debug(`Using existing category ID: ${categoryId} for name: ${data.category}`);
           } else {
-            // If not found, create with name = id (temporary)
-            const newCategory = await this.getOrCreateCategory(userEmail, data.categoryId, groupId);
+            // If not found, create a new category with the given name
+            const newCategory = await this.getOrCreateCategory(userEmail, data.category, groupId);
             if (newCategory) {
               categoryId = newCategory.id;
-              logger.debug(`Created new category with ID: ${categoryId}`);
+              logger.debug(`Created new category with ID: ${categoryId} for name: ${data.category}`);
             }
           }
         } else {
           logger.debug('Removing category from notification');
           categoryId = null;
         }
-      } else if (data.categoryId !== undefined && !groupId) {
+      } else if (data.category !== undefined && !groupId) {
         // If we have a category but no group, we can't assign it
         logger.debug('Cannot set category without a group');
         categoryId = null;
