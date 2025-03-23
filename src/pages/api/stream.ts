@@ -194,8 +194,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     try {
       await writer.ready;
       await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
-      heartbeatFailures = 0; // Reset on successful heartbeat
-      logger.debug(`Heartbeat sent to device: ${deviceFingerprint} for user: ${userEmail}`);
+      heartbeatFailures = 0;
     } catch (error: unknown) {
       heartbeatFailures++;
       if (error) {
