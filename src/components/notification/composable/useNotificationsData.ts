@@ -32,8 +32,8 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
    */
   const fetchNotifications = async (
     page: number,
-    group: string = 'all',
-    category: string = 'all',
+    group: string = '',
+    category: string = '',
   ) => {
     if (isLoading.value || isLoadFailed.value) {
       return;
@@ -41,7 +41,12 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
     isLoading.value = true;
 
     try {
-      const response = await fetch(`/api/notifications?page=${page}&pageSize=10&group=${group}&category=${category}`);
+      // Construct the URL with only valid parameters
+      let url = `/api/notifications?page=${page}&pageSize=10`;
+      if (group && group !== 'all') url += `&group=${group}`;
+      if (category && category !== 'all') url += `&category=${category}`;
+
+      const response = await fetch(url);
       const data: { notifications: Notification[]; totalPages: number } = await response.json();
 
       if (page === 1) {
@@ -69,7 +74,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
   /**
    * Load more notifications (for pagination)
    */
-  const loadMoreNotifications = (group: string = 'all', category: string = 'all') => {
+  const loadMoreNotifications = (group: string = '', category: string = '') => {
     if (currentPage.value < totalPages.value) {
       fetchNotifications(currentPage.value + 1, group, category);
     }
@@ -78,7 +83,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
   /**
    * Retry fetching notifications after a failure
    */
-  const retryFetchNotifications = (group: string = 'all', category: string = 'all') => {
+  const retryFetchNotifications = (group: string = '', category: string = '') => {
     isLoadFailed.value = false;
     retryCount.value = 0;
     fetchNotifications(currentPage.value, group, category);
@@ -108,8 +113,8 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
   ) => {
     // Check if the notification matches the current filter
     const matchesCurrentFilter =
-      (currentGroup.value === 'all' || newNotification.group === currentGroup.value) &&
-      (currentCategory.value === 'all' || newNotification.category === currentCategory.value);
+      (currentGroup.value === 'all' || currentGroup.value === '' || newNotification.groupId === currentGroup.value) &&
+      (currentCategory.value === 'all' || currentCategory.value === '' || newNotification.categoryId === currentCategory.value);
 
     if (matchesCurrentFilter) {
       // Add to the current view with animation
@@ -164,12 +169,14 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
         }
       }, 3000);
     } else if (
-      (currentGroup.value === 'all' || updatedNotification.group === currentGroup.value) &&
-      (currentCategory.value === 'all' || updatedNotification.category === currentCategory.value)
+      (currentGroup.value === 'all' || currentGroup.value === '' || updatedNotification.groupId === currentGroup.value) &&
+      (currentCategory.value === 'all' || currentCategory.value === '' || updatedNotification.categoryId === currentCategory.value)
     ) {
       // Notification matches current filter but isn't in the list (could be pagination)
       // Consider refetching first page or handling differently
-      fetchNotifications(1, currentGroup.value, currentCategory.value);
+      const group = currentGroup.value === 'all' ? '' : currentGroup.value;
+      const category = currentCategory.value === 'all' ? '' : currentCategory.value;
+      fetchNotifications(1, group, category);
     }
   };
 
@@ -201,13 +208,13 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
    */
   const highlightNotification = (
     notificationId: string,
-    currentGroup: string | null | undefined = 'all',
-    currentCategory: string | null | undefined = 'all'
+    currentGroup: string | null | undefined = '',
+    currentCategory: string | null | undefined = ''
   ) => {
     // Find the notification in the current list
     const index = notifications.value.findIndex((n) => n.id === notificationId);
-    const safeGroup = currentGroup || 'all';
-    const safeCategory = currentCategory || 'all';
+    const safeGroup = currentGroup === 'all' ? '' : (currentGroup || '');
+    const safeCategory = currentCategory === 'all' ? '' : (currentCategory || '');
 
     if (index !== -1) {
       // Set highlight flag

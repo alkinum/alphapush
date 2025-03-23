@@ -51,7 +51,7 @@ const notificationId = url.searchParams.get('notificationId');
     data-user-email={userEmail}
     data-notification-id={notificationId || ''}
   >
-    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full" transition:persist>
+    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />
       <main class="w-full">
         <EnhanceExperienceAlert isMobile={isMobile} client:load />

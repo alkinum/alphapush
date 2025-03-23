@@ -18,15 +18,40 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
     const userEmail = session.user.email;
     const url = new URL(request.url);
-    const group = url.searchParams.get('group') || 'all';
+    const groupParam = url.searchParams.get('group') || 'all';
 
     const db = getDb(locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
 
-    // Get categories based on group parameter
-    const categories = group === 'all'
-      ? await notificationService.getCategories(userEmail)
-      : await notificationService.getCategoriesByGroup(userEmail, group);
+    let categories;
+
+    if (groupParam === 'all') {
+      // Get all categories
+      categories = await notificationService.getCategories(userEmail);
+    } else {
+      // Check if groupParam is a groupId (UUID format) or a group name
+      // A simple check for UUID format - adjust based on your actual UUID format
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(groupParam);
+
+      if (isUuid) {
+        // If it's a UUID, use it directly as a groupId
+        categories = await notificationService.getCategoriesByGroup(userEmail, groupParam);
+      } else {
+        // If it's a name, find the group first
+        const group = await db
+          .select()
+          .from(groups)
+          .where(and(eq(groups.userEmail, userEmail), eq(groups.name, groupParam)))
+          .get();
+
+        if (group) {
+          categories = await notificationService.getCategoriesByGroup(userEmail, group.id);
+        } else {
+          // Group not found by name, return empty list with just "All" category
+          categories = [{ id: 'all', name: 'All', count: 0 }];
+        }
+      }
+    }
 
     return new Response(JSON.stringify({ categories }), {
       status: 200,

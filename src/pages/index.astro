@@ -54,7 +54,7 @@ if (session?.user?.email) {
   // Get categories for each specific group
   for (const group of groups) {
     if (group.id !== 'all') {
-      const groupCategories = await notificationService.getCategoriesByGroup(userEmail, group.name);
+      const groupCategories = await notificationService.getCategoriesByGroup(userEmail, group.id);
       categoriesByGroup[group.id] = groupCategories.map((category) => ({
         id: category.id,
         name: category.name,

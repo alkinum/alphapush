@@ -213,12 +213,9 @@ watch(
             class="space-y-4"
             id="notification-list"
           >
-            <NotificationCard
-              v-for="notification in notifications"
-              :key="notification.id"
-              :notification="notification"
-              @deleted="handleNotificationDeleted"
-            />
+            <div v-for="notification in notifications" :key="notification.id">
+              <NotificationCard :notification="notification" @deleted="handleNotificationDeleted" />
+            </div>
           </TransitionGroup>
           <Card v-else>
             <CardContent class="flex items-center justify-center p-6">

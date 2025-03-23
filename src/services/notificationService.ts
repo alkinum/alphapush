@@ -10,8 +10,8 @@ export interface NotificationCreateData {
   content: string;
   title?: string;
   subtitle?: string;
-  category?: string;
-  group?: string;
+  categoryId?: string;
+  groupId?: string;
   userEmail: string;
   iconUrl?: string;
   navigate_url?: string;
@@ -23,8 +23,8 @@ export interface NotificationUpdateData {
   content?: string;
   title?: string;
   subtitle?: string;
-  category?: string;
-  group?: string;
+  categoryId?: string;
+  groupId?: string;
   iconUrl?: string;
   navigate_url?: string;
   type?: string;
@@ -73,54 +73,44 @@ export class NotificationService {
 
     // If group is specified, add group filter condition
     if (options.group && options.group !== 'all') {
-      logger.debug(`Filtering by group: ${options.group}`);
-      // Get group ID first
-      const group = await this.getOrCreateGroup(userEmail, options.group);
-      if (group) {
-        const groupCondition = eq(pushNotifications.groupId, group.id);
+      logger.debug(`Filtering by group ID: ${options.group}`);
+
+      // Check if the group exists with this ID
+      const groupById = await this.db
+        .select()
+        .from(groups)
+        .where(and(eq(groups.userEmail, userEmail), eq(groups.id, options.group)))
+        .get();
+
+      if (groupById) {
+        const groupCondition = eq(pushNotifications.groupId, groupById.id);
         whereClause = and(whereClause, groupCondition) as SQL<unknown>;
-        logger.debug(`Group found with ID: ${group.id}`);
+        logger.debug(`Group found with ID: ${groupById.id}`);
       } else {
-        logger.warn(`Group not found: ${options.group}`);
+        logger.warn(`Group not found with ID: ${options.group}`);
       }
     }
 
     // If category is specified, add category filter condition
     if (options.category && options.category !== 'all') {
-      logger.debug(`Filtering by category: ${options.category}`);
-      // If group is also specified, use it to get the category
-      if (options.group && options.group !== 'all') {
-        const group = await this.getOrCreateGroup(userEmail, options.group);
-        if (group) {
-          // Get category with specified group
-          const category = await this.getOrCreateCategory(userEmail, options.category, group.id);
-          if (category) {
-            const categoryCondition = eq(pushNotifications.categoryId, category.id);
-            whereClause = and(whereClause, categoryCondition) as SQL<unknown>;
-            logger.debug(`Category found with ID: ${category.id} in group ${group.id}`);
-          } else {
-            logger.warn(`Category not found: ${options.category} in group ${options.group}`);
-          }
-        }
-      } else {
-        // If no specific group, try to find the category in any group
-        logger.debug(`Searching for category ${options.category} in any group`);
-        const categoryQuery = await this.db
-          .select()
-          .from(categories)
-          .where(and(
-            eq(categories.userEmail, userEmail),
-            eq(categories.name, options.category)
-          ))
-          .get();
+      logger.debug(`Filtering by category ID: ${options.category}`);
 
-        if (categoryQuery) {
-          const categoryCondition = eq(pushNotifications.categoryId, categoryQuery.id);
-          whereClause = and(whereClause, categoryCondition) as SQL<unknown>;
-          logger.debug(`Category found with ID: ${categoryQuery.id}`);
-        } else {
-          logger.warn(`Category not found: ${options.category}`);
-        }
+      // Check if the category exists with this ID
+      const categoryById = await this.db
+        .select()
+        .from(categories)
+        .where(and(
+          eq(categories.userEmail, userEmail),
+          eq(categories.id, options.category)
+        ))
+        .get();
+
+      if (categoryById) {
+        const categoryCondition = eq(pushNotifications.categoryId, categoryById.id);
+        whereClause = and(whereClause, categoryCondition) as SQL<unknown>;
+        logger.debug(`Category found with ID: ${categoryById.id}`);
+      } else {
+        logger.warn(`Category not found with ID: ${options.category}`);
       }
     }
 
@@ -267,8 +257,8 @@ export class NotificationService {
   async createNotification(data: NotificationCreateData): Promise<Notification | undefined> {
     logger.debug(`Creating notification for user ${data.userEmail}: ${JSON.stringify({
       title: data.title,
-      category: data.category,
-      group: data.group
+      categoryId: data.categoryId,
+      groupId: data.groupId
     })}`);
 
     try {
@@ -277,22 +267,52 @@ export class NotificationService {
       let groupId: string | null = null;
 
       // If group is provided, get or create the group
-      if (data.group) {
-        logger.debug(`Processing group: ${data.group}`);
-        const group = await this.getOrCreateGroup(data.userEmail, data.group);
-        if (group) {
-          groupId = group.id;
-          logger.debug(`Using group ID: ${groupId}`);
+      if (data.groupId) {
+        logger.debug(`Processing group ID: ${data.groupId}`);
+        // Check if it's a valid UUID for an existing group
+        const existingGroup = await this.db
+          .select()
+          .from(groups)
+          .where(and(eq(groups.userEmail, data.userEmail), eq(groups.id, data.groupId)))
+          .get();
+
+        if (existingGroup) {
+          groupId = existingGroup.id;
+          logger.debug(`Using existing group ID: ${groupId}`);
+        } else if (data.groupId !== 'all') {
+          // If not found and not 'all', create with name = id (temporary)
+          const newGroup = await this.getOrCreateGroup(data.userEmail, data.groupId);
+          if (newGroup) {
+            groupId = newGroup.id;
+            logger.debug(`Created new group with ID: ${groupId}`);
+          }
         }
       }
 
       // If category is provided, get or create the category
-      if (data.category && groupId) {
-        logger.debug(`Processing category: ${data.category}`);
-        const category = await this.getOrCreateCategory(data.userEmail, data.category, groupId);
-        if (category) {
-          categoryId = category.id;
-          logger.debug(`Using category ID: ${categoryId}`);
+      if (data.categoryId && groupId) {
+        logger.debug(`Processing category ID: ${data.categoryId}`);
+        // Check if it's a valid UUID for an existing category
+        const existingCategory = await this.db
+          .select()
+          .from(categories)
+          .where(and(
+            eq(categories.userEmail, data.userEmail),
+            eq(categories.id, data.categoryId),
+            eq(categories.groupId, groupId)
+          ))
+          .get();
+
+        if (existingCategory) {
+          categoryId = existingCategory.id;
+          logger.debug(`Using existing category ID: ${categoryId}`);
+        } else if (data.categoryId !== 'all') {
+          // If not found and not 'all', create with name = id (temporary)
+          const newCategory = await this.getOrCreateCategory(data.userEmail, data.categoryId, groupId);
+          if (newCategory) {
+            categoryId = newCategory.id;
+            logger.debug(`Created new category with ID: ${categoryId}`);
+          }
         }
       }
 
@@ -321,11 +341,41 @@ export class NotificationService {
 
       logger.info(`Created notification with ID ${notification.id} for user ${data.userEmail}`);
 
+      // Get category and group names for the response
+      let categoryName: string | null = null;
+      let groupName: string | null = null;
+
+      if (categoryId) {
+        const category = await this.db
+          .select({ name: categories.name })
+          .from(categories)
+          .where(eq(categories.id, categoryId))
+          .get();
+
+        if (category) {
+          categoryName = category.name;
+        }
+      }
+
+      if (groupId) {
+        const group = await this.db
+          .select({ name: groups.name })
+          .from(groups)
+          .where(eq(groups.id, groupId))
+          .get();
+
+        if (group) {
+          groupName = group.name;
+        }
+      }
+
       // Return notification with category and group information
       const notificationWithDetails = {
         ...notification,
-        category: data.category || null,
-        group: data.group || null,
+        category: categoryName,
+        group: groupName,
+        categoryId,
+        groupId
       } as Notification;
 
       // Send SSE event for the new notification
@@ -369,14 +419,28 @@ export class NotificationService {
       let categoryId = oldNotification.categoryId;
       let groupId = oldNotification.groupId;
 
-      // If group is provided, get or create the group
-      if (data.group !== undefined) {
-        if (data.group) {
-          logger.debug(`Updating group to: ${data.group}`);
-          const group = await this.getOrCreateGroup(userEmail, data.group);
-          if (group) {
-            groupId = group.id;
-            logger.debug(`Using group ID: ${groupId}`);
+      // If group is provided, update the group ID
+      if (data.groupId !== undefined) {
+        if (data.groupId && data.groupId !== 'all') {
+          logger.debug(`Updating to group ID: ${data.groupId}`);
+
+          // Check if it's a valid UUID for an existing group
+          const existingGroup = await this.db
+            .select()
+            .from(groups)
+            .where(and(eq(groups.userEmail, userEmail), eq(groups.id, data.groupId)))
+            .get();
+
+          if (existingGroup) {
+            groupId = existingGroup.id;
+            logger.debug(`Using existing group ID: ${groupId}`);
+          } else {
+            // If not found, create with name = id (temporary)
+            const newGroup = await this.getOrCreateGroup(userEmail, data.groupId);
+            if (newGroup) {
+              groupId = newGroup.id;
+              logger.debug(`Created new group with ID: ${groupId}`);
+            }
           }
         } else {
           logger.debug('Removing group from notification');
@@ -386,20 +450,38 @@ export class NotificationService {
         }
       }
 
-      // If category is provided, get or create the category
-      if (data.category !== undefined && groupId) {
-        if (data.category) {
-          logger.debug(`Updating category to: ${data.category}`);
-          const category = await this.getOrCreateCategory(userEmail, data.category, groupId);
-          if (category) {
-            categoryId = category.id;
-            logger.debug(`Using category ID: ${categoryId}`);
+      // If category is provided, update the category ID
+      if (data.categoryId !== undefined && groupId) {
+        if (data.categoryId && data.categoryId !== 'all') {
+          logger.debug(`Updating to category ID: ${data.categoryId}`);
+
+          // Check if it's a valid UUID for an existing category
+          const existingCategory = await this.db
+            .select()
+            .from(categories)
+            .where(and(
+              eq(categories.userEmail, userEmail),
+              eq(categories.id, data.categoryId),
+              eq(categories.groupId, groupId)
+            ))
+            .get();
+
+          if (existingCategory) {
+            categoryId = existingCategory.id;
+            logger.debug(`Using existing category ID: ${categoryId}`);
+          } else {
+            // If not found, create with name = id (temporary)
+            const newCategory = await this.getOrCreateCategory(userEmail, data.categoryId, groupId);
+            if (newCategory) {
+              categoryId = newCategory.id;
+              logger.debug(`Created new category with ID: ${categoryId}`);
+            }
           }
         } else {
           logger.debug('Removing category from notification');
           categoryId = null;
         }
-      } else if (data.category !== undefined && !groupId) {
+      } else if (data.categoryId !== undefined && !groupId) {
         // If we have a category but no group, we can't assign it
         logger.debug('Cannot set category without a group');
         categoryId = null;
@@ -727,22 +809,27 @@ export class NotificationService {
   /**
    * Get all categories for a specific group
    * @param userEmail User email
-   * @param groupName Group name
+   * @param groupId Group ID
    * @returns Categories list
    */
-  async getCategoriesByGroup(userEmail: string, groupName: string) {
-    logger.debug(`Getting categories for group "${groupName}" and user ${userEmail}`);
+  async getCategoriesByGroup(userEmail: string, groupId: string) {
+    logger.debug(`Getting categories for group ID "${groupId}" and user ${userEmail}`);
 
-    if (groupName === 'all') {
+    if (groupId === 'all') {
       logger.debug('Getting all categories as group is "all"');
       return this.getCategories(userEmail);
     }
 
     try {
-      // Get group ID
-      const group = await this.getOrCreateGroup(userEmail, groupName);
+      // Get group information
+      const group = await this.db
+        .select()
+        .from(groups)
+        .where(and(eq(groups.userEmail, userEmail), eq(groups.id, groupId)))
+        .get();
+
       if (!group) {
-        logger.warn(`Group "${groupName}" not found for user ${userEmail}`);
+        logger.warn(`Group with ID "${groupId}" not found for user ${userEmail}`);
         return [{ id: 'all', name: 'All', count: 0 }];
       }
 
@@ -763,7 +850,7 @@ export class NotificationService {
         )
         .where(and(
           eq(categories.userEmail, userEmail),
-          eq(categories.groupId, group.id)
+          eq(categories.groupId, groupId)
         ))
         .groupBy(categories.id)
         .all();
@@ -775,20 +862,20 @@ export class NotificationService {
         .where(
           and(
             eq(pushNotifications.userEmail, userEmail),
-            eq(pushNotifications.groupId, group.id)
+            eq(pushNotifications.groupId, groupId)
           )
         )
         .get();
 
       const notificationCount = Number(groupNotificationCount?.count || 0);
-      logger.info(`Found ${categoriesWithCount.length} categories for group "${groupName}", total notifications: ${notificationCount}`);
+      logger.info(`Found ${categoriesWithCount.length} categories for group "${group.name}", total notifications: ${notificationCount}`);
 
       return [
         { id: 'all', name: 'All', count: notificationCount },
         ...categoriesWithCount,
       ];
     } catch (error) {
-      logger.error(`Error getting categories for group "${groupName}": ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(`Error getting categories for group ID "${groupId}": ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }

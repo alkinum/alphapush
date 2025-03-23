@@ -54,7 +54,6 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
         console.error('Error parsing stored fingerprints:', error);
       }
 
-      // 确保userEmail.value是string类型
       const email = userEmail.value;
 
       // Get fingerprint for current user or generate a new one
@@ -217,4 +216,4 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
     isConnected,
     connectionError
   };
-} 
+}

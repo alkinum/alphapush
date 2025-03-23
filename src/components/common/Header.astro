@@ -18,7 +18,7 @@ const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: str
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 ---
 
-<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4 h-16 flex items-center">
+<header class="bg-background border rounded-lg shadow-sm mt-4 mb-4 h-16 flex items-center" transition:persist>
   <div class="container mx-auto px-6 flex items-center justify-between h-full">
     <div class="flex items-center">
       <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>

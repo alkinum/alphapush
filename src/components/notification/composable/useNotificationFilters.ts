@@ -18,8 +18,8 @@ export interface Group {
  * Composable for managing notification filters (groups and categories)
  */
 export function useNotificationFilters(
-  initialGroup: string = 'all',
-  initialCategory: string = 'all'
+  initialGroup: string = '',
+  initialCategory: string = ''
 ) {
   // Current filter state
   const currentGroup = ref(initialGroup);
@@ -59,27 +59,27 @@ export function useNotificationFilters(
    */
   const processNewNotification = (notification: Notification) => {
     // Check if the notification has a new category
-    if (notification.category && !knownCategories.has(notification.category)) {
-      knownCategories.add(notification.category);
+    if (notification.categoryId && !knownCategories.has(notification.categoryId)) {
+      knownCategories.add(notification.categoryId);
       // Dispatch event for new category
       document.dispatchEvent(
         new CustomEvent('newNotificationCategory', {
           detail: {
-            category: notification.category,
-            group: notification.group
+            categoryId: notification.categoryId,
+            groupId: notification.groupId
           },
         }),
       );
     }
 
     // Check if the notification has a new group
-    if (notification.group && !knownGroups.has(notification.group)) {
-      knownGroups.add(notification.group);
+    if (notification.groupId && !knownGroups.has(notification.groupId)) {
+      knownGroups.add(notification.groupId);
       // Dispatch event for new group
       document.dispatchEvent(
         new CustomEvent('newNotificationGroup', {
           detail: {
-            group: notification.group,
+            groupId: notification.groupId,
           },
         }),
       );
@@ -100,20 +100,20 @@ export function useNotificationFilters(
     notification: Notification,
     onFilterChange: (group: string, category: string) => void
   ) => {
-    if (notification.group) {
+    if (notification.groupId) {
       // Switch to the notification's group first
-      currentGroup.value = notification.group;
-      currentCategory.value = 'all'; // Reset category first
+      currentGroup.value = notification.groupId;
+      currentCategory.value = ''; // Reset category first
 
       // Then set category if it exists
-      if (notification.category) {
+      if (notification.categoryId) {
         setTimeout(() => {
-          currentCategory.value = notification.category || 'all';
+          currentCategory.value = notification.categoryId || '';
         }, 100); // Small delay to ensure group change happens first
       }
 
       // Notify about the filter change
-      onFilterChange(notification.group, notification.category || 'all');
+      onFilterChange(notification.groupId, notification.categoryId || '');
     }
   };
 
@@ -125,9 +125,12 @@ export function useNotificationFilters(
     category: string,
     onFilterChange: (group: string, category: string) => void
   ) => {
-    currentGroup.value = group;
-    currentCategory.value = category;
-    onFilterChange(group, category);
+    const effectiveGroup = group === 'all' ? '' : group;
+    const effectiveCategory = category === 'all' ? '' : category;
+
+    currentGroup.value = effectiveGroup;
+    currentCategory.value = effectiveCategory;
+    onFilterChange(effectiveGroup, effectiveCategory);
   };
 
   return {
