@@ -70,15 +70,43 @@ export async function getVapidKey(): Promise<string | null> {
       throw new Error('Failed to fetch VAPID key');
     }
     const data = (await response.json()) as { publicKey: string; pushToken: string };
-    vapidPublicKey = data.publicKey;
-    if (vapidPublicKey) {
+    const serverVapidKey = data.publicKey;
+
+    // Check if server key is different from local key
+    const storedVapidKey = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
+    if (serverVapidKey && serverVapidKey !== storedVapidKey) {
+      console.debug('Server VAPID key differs from local key, updating...');
+
+      // Update local storage with new key
+      localStorage.setItem(VAPID_KEY_STORAGE_KEY, serverVapidKey);
+      vapidPublicKey = serverVapidKey;
+
+      // Force resubscription if keys are different
+      if (storedVapidKey) {
+        // Unsubscribe from current subscription because key has changed
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            await subscription.unsubscribe();
+            console.debug('Unsubscribed from push due to VAPID key change');
+          }
+        }
+      }
+    } else if (serverVapidKey) {
+      vapidPublicKey = serverVapidKey;
       localStorage.setItem(VAPID_KEY_STORAGE_KEY, vapidPublicKey);
-      return vapidPublicKey;
     }
+
     if (data.pushToken) {
       document.dispatchEvent(new CustomEvent('newPushToken', { detail: { pushToken: data.pushToken } }));
     }
-    throw new Error('Invalid VAPID key received');
+
+    if (!serverVapidKey) {
+      throw new Error('Invalid VAPID key received');
+    }
+
+    return vapidPublicKey;
   } catch (error) {
     console.error('Error fetching VAPID key:', error);
     toast({
@@ -110,6 +138,7 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
       // If we have an active subscription, unsubscribe from it
       if (subscription) {
         await subscription.unsubscribe();
+        console.debug('Unsubscribed from push subscription in browser');
       }
 
       // If we have a fingerprint to unsubscribe, delete it from the server
@@ -128,7 +157,13 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
         });
 
         if (!response.ok) {
-          throw new Error('Failed to delete subscription on server');
+          if (response.status === 404) {
+            console.debug('Subscription not found on server, already deleted');
+          } else {
+            throw new Error(`Failed to delete subscription on server: ${response.status} ${response.statusText}`);
+          }
+        } else {
+          console.debug('Unsubscribed from push subscription on server');
         }
 
         // Remove the fingerprint from storage if provided userEmail
@@ -152,12 +187,81 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
 }
 
 /**
+ * Handle fingerprint changes and update subscription
+ */
+async function handleFingerprintChange(userEmail: string, newFingerprint: string): Promise<boolean> {
+  const storedFingerprint = getUserFingerprint(userEmail);
+
+  // If fingerprint hasn't changed, just return true
+  if (storedFingerprint === newFingerprint) {
+    return true;
+  }
+
+  console.debug(`Fingerprint changed for user ${userEmail}, updating subscription...`);
+
+  try {
+    // Get current subscription
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      console.debug('No active subscription found, initializing web push...');
+      return await initializeWebPush(true);
+    }
+
+    // Unsubscribe old fingerprint if exists
+    if (storedFingerprint) {
+      await unsubscribeWebPush(storedFingerprint, userEmail);
+    }
+
+    // Update fingerprint in storage
+    deviceFingerprint = newFingerprint;
+    saveUserFingerprint(userEmail, deviceFingerprint);
+
+    // Update subscription with new fingerprint using PUT method
+    const response = await fetch('/api/subscription', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ subscription, deviceFingerprint }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update subscription on server: ${response.status} ${response.statusText}`);
+    }
+
+    console.debug('Subscription updated successfully with new fingerprint');
+    return true;
+  } catch (error) {
+    console.error('Failed to handle fingerprint change:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to update subscription. Please reload the app.',
+      variant: 'destructive',
+    });
+    return false;
+  }
+}
+
+/**
  * Subscribe to web push notifications
+ * Compares application server keys and unsubscribes if keys don't match
+ * Registers the subscription with the server using PUT method
  */
 export async function subscribeWebPush(publicKey: string): Promise<boolean> {
   if ('serviceWorker' in navigator && 'PushManager' in window) {
     try {
       const registration = await navigator.serviceWorker.ready;
+      const userEmail = document.body.getAttribute('data-user-email');
+
+      if (!userEmail) {
+        throw new Error('User email not found');
+      }
+
+      // Get and validate fingerprint
+      const newFingerprint = await getCombinedFingerprint(userEmail);
+      const storedFingerprint = getUserFingerprint(userEmail);
 
       // Check for existing subscription
       let subscription = await registration.pushManager.getSubscription();
@@ -165,78 +269,53 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       // Compare the existing subscription's application server key with the new one
       if (subscription) {
         const existingKey = arrayBufferToBase64(subscription.options.applicationServerKey as ArrayBuffer);
-        if (existingKey !== publicKey) {
-          // Unsubscribe only if the key is different
+        const normalizedPublicKey = publicKey.replace(/=/g, ''); // Remove padding if any
+
+        if (existingKey !== normalizedPublicKey) {
+          console.debug('Application server key mismatch, unsubscribing old subscription');
           await subscription.unsubscribe();
           subscription = null;
         }
       }
 
+      // If fingerprint changed and we have an old one, unsubscribe it from server
+      if (storedFingerprint && storedFingerprint !== newFingerprint) {
+        console.debug('Fingerprint changed, unsubscribing old fingerprint');
+        await unsubscribeWebPush(storedFingerprint, userEmail);
+      }
+
       // Subscribe only if there's no valid subscription
       if (!subscription) {
+        console.debug('Creating new push subscription');
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: publicKey,
         });
       } else {
-        return true;
+        console.debug('Using existing push subscription');
       }
 
-      const userEmail = document.body.getAttribute('data-user-email');
-      if (!userEmail) {
-        throw new Error('User email not found');
-      }
-
-      // Get the current fingerprint
-      const newFingerprint = await getCombinedFingerprint(userEmail);
-
-      // Get the previous fingerprint for this specific user
-      const previousFingerprint = getUserFingerprint(userEmail);
-
-      // Check if fingerprint has changed for this user
-      if (previousFingerprint && previousFingerprint !== newFingerprint) {
-        console.debug(`Fingerprint changed for user ${userEmail}, unsubscribing old fingerprint:`, previousFingerprint);
-        // Unsubscribe the old fingerprint
-        await unsubscribeWebPush(previousFingerprint, userEmail);
-      }
-
-      // Update the current fingerprint
+      // Update fingerprint in storage
       deviceFingerprint = newFingerprint;
       saveUserFingerprint(userEmail, deviceFingerprint);
 
-      const maxRetries = 3;
-      let retries = 0;
-      let success = false;
+      // Send subscription details to server using PUT method
+      const response = await fetch('/api/subscription', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subscription,
+          deviceFingerprint: newFingerprint
+        }),
+      });
 
-      while (retries < maxRetries && !success) {
-        try {
-          const response = await fetch('/api/subscription', {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ subscription, deviceFingerprint }),
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to update subscription on server');
-          }
-
-          success = true;
-        } catch (error) {
-          retries++;
-          if (retries >= maxRetries) {
-            throw error;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retries)));
-        }
+      if (!response.ok) {
+        throw new Error(`Failed to register subscription on server: ${response.status} ${response.statusText}`);
       }
 
-      if (!success) {
-        // Cancel the subscription
-        await subscription.unsubscribe();
-        throw new Error('Failed to update subscription after multiple attempts');
-      }
+      console.debug('Subscription registered successfully with server');
 
       // Dispatch subscription success event
       document.dispatchEvent(new CustomEvent('subscriptionSuccess'));
@@ -244,13 +323,17 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
     } catch (error) {
       console.error('Web Push subscription failed:', error);
       // Cancel the subscription if it exists
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        await subscription.unsubscribe();
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await subscription.unsubscribe();
+          console.debug('Cleaned up failed subscription');
+        }
+      } catch (cleanupError) {
+        console.error('Failed to clean up subscription after error:', cleanupError);
       }
 
-      // Show error toast
       toast({
         title: 'Error',
         description: 'Push subscription failed. Please reload the app and try again.',
@@ -264,20 +347,33 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
 
 /**
  * Initialize web push subscription
+ * When forceRefresh is true, always fetches the latest VAPID key from server
+ * Handles subscribing to push notifications with proper VAPID key verification
  */
-export async function initializeWebPush(newPublicKey?: string): Promise<void> {
+export async function initializeWebPush(forceRefresh = false): Promise<boolean> {
   if (Notification.permission !== 'granted') {
-    return;
+    return false;
   }
 
-  if (newPublicKey) {
-    vapidPublicKey = newPublicKey;
-  } else if (!vapidPublicKey) {
-    vapidPublicKey = await getVapidKey();
-  }
+  try {
+    // Always fetch the latest VAPID key from server if forceRefresh is true or vapidPublicKey doesn't exist
+    if (forceRefresh || !vapidPublicKey) {
+      vapidPublicKey = await getVapidKey();
+    }
 
-  if (vapidPublicKey) {
-    await subscribeWebPush(vapidPublicKey);
+    if (vapidPublicKey) {
+      return await subscribeWebPush(vapidPublicKey);
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Failed to initialize web push:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to initialize push notifications. Please try again later.',
+      variant: 'destructive',
+    });
+    return false;
   }
 }
 
@@ -287,7 +383,6 @@ export async function initializeWebPush(newPublicKey?: string): Promise<void> {
 export async function handleSSEConnectionError(error: string, code: StreamErrorCode): Promise<void> {
   console.error('SSE connection error:', error, 'code:', code);
 
-  // If we get an invalid fingerprint error, we need to re-register the subscription
   if (code === StreamErrorCode.INVALID_FINGERPRINT) {
     console.debug('Invalid fingerprint detected, re-registering subscription...');
 
@@ -298,53 +393,13 @@ export async function handleSSEConnectionError(error: string, code: StreamErrorC
     }
 
     try {
-      // Get the current subscription
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        console.debug('No subscription found, initializing web push...');
-        await initializeWebPush();
-        return;
-      }
-
-      // Get the device fingerprint
       const newFingerprint = await getCombinedFingerprint(userEmail);
+      const success = await handleFingerprintChange(userEmail, newFingerprint);
 
-      // Get the stored fingerprint for this user
-      const storedFingerprint = getUserFingerprint(userEmail);
-
-      // Check if fingerprint has changed for this user
-      if (storedFingerprint !== newFingerprint) {
-        console.debug(`Fingerprint changed for user ${userEmail}, updating...`);
-
-        // If we have a previous fingerprint, unsubscribe it
-        if (storedFingerprint) {
-          await unsubscribeWebPush(storedFingerprint, userEmail);
-        }
-
-        // Update the fingerprint
-        deviceFingerprint = newFingerprint;
-        saveUserFingerprint(userEmail, deviceFingerprint);
+      if (success) {
+        console.debug('Subscription re-registered successfully, reconnecting SSE...');
+        document.dispatchEvent(new CustomEvent('reconnectSSE'));
       }
-
-      // Re-register the subscription
-      const response = await fetch('/api/subscription', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ subscription, deviceFingerprint }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update subscription on server');
-      }
-
-      console.debug('Subscription re-registered successfully, reconnecting SSE...');
-
-      // Dispatch an event to reconnect SSE
-      document.dispatchEvent(new CustomEvent('reconnectSSE'));
     } catch (error) {
       console.error('Failed to re-register subscription:', error);
       toast({
@@ -413,6 +468,8 @@ export async function cleanupOnLogout(): Promise<void> {
 
 /**
  * Initialize the module
+ * Always fetches the latest VAPID key from the server and verifies it against the local storage.
+ * If keys differ, cancels old subscription and re-initializes web push.
  */
 export function initializePushModule(): void {
   // Check if user is logged in
@@ -425,7 +482,13 @@ export function initializePushModule(): void {
     // Note: We don't clear all fingerprints here, as other users might still be valid
   } else {
     console.debug('Starting to initialize web push...');
-    initializeWebPush();
+    // Always fetch the latest VAPID key from server and verify
+    getVapidKey().then((key) => {
+      if (key) {
+        vapidPublicKey = key;
+        initializeWebPush(true);
+      }
+    });
   }
 
   // Register event listeners
@@ -445,11 +508,19 @@ export function initializePushModule(): void {
   document.addEventListener('vapidKeysReset', async (event) => {
     const { newPublicKey } = (event as CustomEvent).detail;
     console.debug('VAPID keys reset, reinitializing web push...');
-    await initializeWebPush(newPublicKey);
+
+    // Store the new public key
+    if (newPublicKey) {
+      vapidPublicKey = newPublicKey;
+      localStorage.setItem(VAPID_KEY_STORAGE_KEY, newPublicKey);
+    }
+
+    // Force refresh
+    await initializeWebPush(true);
   });
 
   document.addEventListener('notificationPermissionGranted', () => {
-    initializeWebPush();
+    initializeWebPush(true);
   });
 
   window.addEventListener('SSEConnectionError', async (event) => {
@@ -466,8 +537,8 @@ export function initializePushModule(): void {
       if (storedFingerprint && currentFingerprint !== storedFingerprint) {
         console.debug(`Fingerprint changed during session for user ${userEmail}, updating subscription...`);
         // Re-initialize web push with the new fingerprint
-        await initializeWebPush();
+        await initializeWebPush(true);
       }
     }
   }, 60 * 60 * 1000); // Check once per hour
-} 
+}

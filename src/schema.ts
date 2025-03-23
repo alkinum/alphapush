@@ -14,7 +14,7 @@ export const userCredentials = sqliteTable('user_credentials', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
-export const categories = sqliteTable('categories', {
+export const groups = sqliteTable('groups', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -24,12 +24,13 @@ export const categories = sqliteTable('categories', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
-export const groups = sqliteTable('groups', {
+export const categories = sqliteTable('categories', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => createId()),
   name: text('name').notNull(),
   userEmail: text('user_email').notNull(),
+  groupId: text('group_id').references(() => groups.id).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -87,12 +88,17 @@ export const userPreferences = sqliteTable('user_preferences', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
-export const categoriesRelations = relations(categories, ({ many }) => ({
+export const categoriesRelations = relations(categories, ({ many, one }) => ({
   notifications: many(pushNotifications),
+  group: one(groups, {
+    fields: [categories.groupId],
+    references: [groups.id],
+  }),
 }));
 
 export const groupsRelations = relations(groups, ({ many }) => ({
   notifications: many(pushNotifications),
+  categories: many(categories),
 }));
 
 export const pushNotificationsRelations = relations(pushNotifications, ({ one }) => ({

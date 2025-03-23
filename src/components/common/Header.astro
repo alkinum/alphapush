@@ -11,11 +11,7 @@ let pushToken = null;
 
 if (session?.user?.email) {
   const pushTokenService = new PushTokenService(Astro.locals.runtime.env.DB);
-
   pushToken = await pushTokenService.getPushToken(session.user.email);
-  if (!pushToken) {
-    pushToken = await pushTokenService.resetPushToken(session.user.email);
-  }
 }
 
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
@@ -24,7 +20,9 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
 
 <header class="bg-background border rounded-lg shadow-sm mt-4 mb-4 h-16 flex items-center">
   <div class="container mx-auto px-6 flex items-center justify-between h-full">
-    <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>
+    <div class="flex items-center">
+      <div class="text font-semibold text-primary cursor-pointer" id="logo">AlphaPush</div>
+    </div>
     {
       isAllowedUser ? (
         <>
@@ -57,4 +55,3 @@ const isAllowedUser = session?.user?.email && allowedEmails.includes(session.use
     }
   });
 </script>
-

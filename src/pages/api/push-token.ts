@@ -2,17 +2,6 @@ import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
 import { PushTokenService } from '@/services/pushTokenService';
 
-async function ensurePushToken(pushTokenService: PushTokenService, userEmail: string): Promise<string> {
-  let pushToken = await pushTokenService.getPushToken(userEmail);
-  if (!pushToken) {
-    pushToken = await pushTokenService.resetPushToken(userEmail);
-    if (!pushToken) {
-      throw new Error('Failed to generate push token');
-    }
-  }
-  return pushToken;
-}
-
 export const GET: APIRoute = async ({ request, locals }) => {
   try {
     const session = await getSession(request);
@@ -26,7 +15,14 @@ export const GET: APIRoute = async ({ request, locals }) => {
     const userEmail = session.user.email;
     const pushTokenService = new PushTokenService(locals.runtime.env.DB);
 
-    const pushToken = await ensurePushToken(pushTokenService, userEmail);
+    const pushToken = await pushTokenService.getPushToken(userEmail);
+
+    if (!pushToken) {
+      return new Response(JSON.stringify({ error: 'Failed to get or generate push token' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     return new Response(JSON.stringify({ pushToken }), {
       status: 200,

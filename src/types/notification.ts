@@ -1,7 +1,3 @@
-import type { InferSelectModel } from 'drizzle-orm';
-import type { pushNotifications } from '@/schema';
-import type { ApprovalState } from './approval';
-
 export interface Notification {
   id: string;
   content: string;

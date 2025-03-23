@@ -7,6 +7,7 @@ import Header from './Header.astro';
 import NotificationPermissionAlert from '@/components/alert/NotificationPermissionAlert.vue';
 
 import '@/styles/globals.css';
+import { ClientRouter } from 'astro:transitions';
 
 const session = await getSession(Astro.request);
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
@@ -42,6 +43,7 @@ const notificationId = url.searchParams.get('notificationId');
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <ClientRouter />
   </head>
   <body
     class="min-h-screen overflow-x-hidden"
@@ -49,7 +51,7 @@ const notificationId = url.searchParams.get('notificationId');
     data-user-email={userEmail}
     data-notification-id={notificationId || ''}
   >
-    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
+    <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full" transition:persist>
       <Header />
       <main class="w-full">
         <EnhanceExperienceAlert isMobile={isMobile} client:load />

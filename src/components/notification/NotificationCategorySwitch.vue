@@ -1,5 +1,5 @@
 <template>
-  <div class="flex space-x-6 overflow-x-auto">
+  <div class="flex ml-1 space-x-6 overflow-x-auto flex-nowrap text-nowrap whitespace-nowrap">
     <button
       v-for="category in categories"
       :key="category.id"

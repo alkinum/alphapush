@@ -3,6 +3,7 @@ import { getSession } from 'auth-astro/server';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
+import { logger } from '@/utils/logger';
 
 // Define error codes enum for better error handling
 export enum StreamErrorCode {
@@ -36,25 +37,49 @@ export function sendSSEvent(userEmail: string, event: string, data: any) {
     clients.set(userEmail, userClients);
   }
 
+  if (userClients.size === 0) {
+    logger.debug(`No active SSE connections for user: ${userEmail}`);
+    return;
+  }
+
+  logger.debug(`Sending SSE event "${event}" to ${userClients.size} connection(s) for user: ${userEmail}`);
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const encoder = new TextEncoder();
-  userClients.forEach(async (writer, deviceFingerprint) => {
+
+  // Use Promise.allSettled to handle all promises, even if some fail
+  const sendPromises = Array.from(userClients.entries()).map(async ([deviceFingerprint, writer]) => {
     try {
       await writer.ready;
       await writer.write(encoder.encode(message));
+      logger.debug(`Successfully sent SSE event "${event}" to device: ${deviceFingerprint}`);
+      return { success: true, deviceFingerprint };
     } catch (error: unknown) {
-      console.error(`Error sending SSE event [${StreamErrorCode.SEND_EVENT_FAILED}]:`, error);
+      logger.error(`Error sending SSE event [${StreamErrorCode.SEND_EVENT_FAILED}] to device ${deviceFingerprint}:`, error);
       userClients.delete(deviceFingerprint);
       try {
         await writer.close();
       } catch (closeError: unknown) {
         if (closeError && (closeError as Error).message !== 'Invalid state: WritableStream is closed') {
-          console.error(`Error closing writer [${StreamErrorCode.WRITER_CLOSE_FAILED}]:`, closeError);
+          logger.error(`Error closing writer [${StreamErrorCode.WRITER_CLOSE_FAILED}] for device ${deviceFingerprint}:`, closeError);
         }
       }
-      if (userClients.size === 0) {
-        clients.delete(userEmail);
-      }
+      return { success: false, deviceFingerprint, error };
+    }
+  });
+
+  // Cleanup empty userClients map
+  Promise.allSettled(sendPromises).then(results => {
+    const failures = results.filter(result =>
+      result.status === 'fulfilled' && !(result.value as any).success
+    ).length;
+
+    if (failures > 0) {
+      logger.warn(`Failed to send SSE event "${event}" to ${failures}/${userClients.size} devices for user: ${userEmail}`);
+    }
+
+    if (userClients.size === 0) {
+      logger.debug(`Removing empty userClients map for user: ${userEmail}`);
+      clients.delete(userEmail);
     }
   });
 }
@@ -62,6 +87,7 @@ export function sendSSEvent(userEmail: string, event: string, data: any) {
 export const GET: APIRoute = async ({ request, locals }) => {
   const session = await getSession(request);
   if (!session?.user?.email) {
+    logger.warn(`SSE connection attempt without authentication`);
     return new Response(JSON.stringify({
       error: 'Unauthorized',
       code: StreamErrorCode.UNAUTHORIZED
@@ -78,6 +104,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const deviceFingerprint = url.searchParams.get('fingerprint');
 
   if (!deviceFingerprint) {
+    logger.warn(`SSE connection attempt from user ${userEmail} without device fingerprint`);
     return new Response(JSON.stringify({
       error: 'Missing device fingerprint',
       code: StreamErrorCode.MISSING_FINGERPRINT
@@ -87,6 +114,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
     });
   }
 
+  logger.debug(`SSE connection attempt from user ${userEmail} with fingerprint ${deviceFingerprint}`);
+
   const subscription = await db
     .select()
     .from(subscriptions)
@@ -94,6 +123,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     .get();
 
   if (!subscription || subscription.userEmail !== userEmail) {
+    logger.warn(`SSE connection attempt with invalid fingerprint: ${deviceFingerprint} for user: ${userEmail}`);
     return new Response(JSON.stringify({
       error: 'Invalid device fingerprint',
       code: StreamErrorCode.INVALID_FINGERPRINT
@@ -109,41 +139,51 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
   if (!clients.has(userEmail)) {
     clients.set(userEmail, new Map());
+    logger.debug(`Created new clients map for user: ${userEmail}`);
   }
   const userClients = clients.get(userEmail)!;
 
   // Close existing connection for this device if it exists
   const existingWriter = userClients.get(deviceFingerprint);
   if (existingWriter) {
+    logger.debug(`Closing existing SSE connection for device: ${deviceFingerprint}`);
     userClients.delete(deviceFingerprint);
     try {
       await existingWriter.close();
+      logger.debug(`Successfully closed existing connection for device: ${deviceFingerprint}`);
     } catch (error) {
       if (error && (error as Error).message !== 'Invalid state: WritableStream is closed') {
-        console.error(`Error closing existing writer [${StreamErrorCode.CLOSE_EXISTING_FAILED}]:`, error);
+        logger.error(`Error closing existing writer [${StreamErrorCode.CLOSE_EXISTING_FAILED}] for device ${deviceFingerprint}:`, error);
       }
     }
     if (userClients.size === 0) {
       clients.delete(userEmail);
+      logger.debug(`Removed empty clients map for user: ${userEmail}`);
     }
   }
 
   userClients.set(deviceFingerprint, writer);
+  logger.info(`Established new SSE connection for user: ${userEmail}, device: ${deviceFingerprint}. Total connections for user: ${userClients.size}`);
 
   const cleanup = async () => {
+    logger.debug(`Cleaning up SSE connection for device: ${deviceFingerprint}`);
     clearInterval(heartbeatInterval);
     const userClients = clients.get(userEmail);
     if (userClients) {
       userClients.delete(deviceFingerprint);
       if (userClients.size === 0) {
         clients.delete(userEmail);
+        logger.debug(`Removed empty clients map for user: ${userEmail}`);
+      } else {
+        logger.debug(`Remaining ${userClients.size} connection(s) for user: ${userEmail}`);
       }
     }
     try {
       await writer.close();
+      logger.debug(`Successfully closed writer for device: ${deviceFingerprint}`);
     } catch (error: unknown) {
       if (error && (error as Error).message !== 'Invalid state: WritableStream is closed') {
-        console.error(`Error closing writer [${StreamErrorCode.WRITER_CLOSE_FAILED}]:`, error);
+        logger.error(`Error closing writer [${StreamErrorCode.WRITER_CLOSE_FAILED}] for device ${deviceFingerprint}:`, error);
       }
     }
   };
@@ -155,13 +195,14 @@ export const GET: APIRoute = async ({ request, locals }) => {
       await writer.ready;
       await writer.write(encoder.encode(`event: heartbeat\ndata: ${new Date().toISOString()}\n\n`));
       heartbeatFailures = 0; // Reset on successful heartbeat
+      logger.debug(`Heartbeat sent to device: ${deviceFingerprint} for user: ${userEmail}`);
     } catch (error: unknown) {
-      if (error) {
-        console.error(`Error sending heartbeat [${StreamErrorCode.HEARTBEAT_FAILED}]:`, (error as Error).message);
-      }
       heartbeatFailures++;
+      if (error) {
+        logger.error(`Error sending heartbeat [${StreamErrorCode.HEARTBEAT_FAILED}] to device ${deviceFingerprint} (attempt ${heartbeatFailures}/5):`, (error as Error).message);
+      }
       if (heartbeatFailures >= 5) {
-        console.error(`Max heartbeat failures reached [${StreamErrorCode.MAX_HEARTBEAT_FAILURES}]`);
+        logger.error(`Max heartbeat failures reached [${StreamErrorCode.MAX_HEARTBEAT_FAILURES}] for device ${deviceFingerprint}`);
         await cleanup();
       }
     }
@@ -171,8 +212,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
     try {
       await writer.ready;
       await writer.write(encoder.encode('event: connected\ndata: SSE connection established\n\n'));
+      logger.debug(`Sent connected event to device: ${deviceFingerprint} for user: ${userEmail}`);
     } catch (error) {
-      console.error(`Error initializing SSE connection [${StreamErrorCode.INIT_CONNECTION_FAILED}]:`, error);
+      logger.error(`Error initializing SSE connection [${StreamErrorCode.INIT_CONNECTION_FAILED}] for device ${deviceFingerprint}:`, error);
       await cleanup();
     }
   }, 500);
@@ -186,3 +228,4 @@ export const GET: APIRoute = async ({ request, locals }) => {
     },
   });
 };
+

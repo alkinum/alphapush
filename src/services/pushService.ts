@@ -204,11 +204,17 @@ export class PushService {
       }
 
       // Send server-sent event
-      sendSSEvent(user.email, 'newNotification', {
-        ...notification,
-        approvalState: options.approvalState,
-        approvalId: options.approvalId,
-      });
+      try {
+        sendSSEvent(user.email, 'newNotification', {
+          ...notification,
+          approvalState: options.approvalState,
+          approvalId: options.approvalId,
+        });
+        logger.debug(`Successfully sent SSE event for notification: ${notification.id}`);
+      } catch (error) {
+        logger.error(`Error sending SSE event for notification ${notification.id}:`, error);
+        // Continue execution as SSE failure should not affect the web push result
+      }
 
       // Return result
       if (failedPushes.length > 0) {

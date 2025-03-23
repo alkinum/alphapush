@@ -1,7 +1,10 @@
 import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
+import { eq, and } from 'drizzle-orm';
+
 import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
+import { groups, categories } from '@/schema';
 
 export const GET: APIRoute = async ({ request, locals }) => {
   try {
@@ -20,31 +23,12 @@ export const GET: APIRoute = async ({ request, locals }) => {
     const db = getDb(locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
 
-    // Create a map to store categories by group
-    const categoriesByGroup: Record<string, any[]> = {};
+    // Get categories based on group parameter
+    const categories = group === 'all'
+      ? await notificationService.getCategories(userEmail)
+      : await notificationService.getCategoriesByGroup(userEmail, group);
 
-    if (group === 'all') {
-      // Get all groups first
-      const groups = await notificationService.getGroups(userEmail);
-
-      // Get categories for 'all' group
-      const allCategories = await notificationService.getCategories(userEmail);
-      categoriesByGroup['all'] = allCategories;
-
-      // Get categories for each specific group
-      for (const groupItem of groups) {
-        if (groupItem.id !== 'all') {
-          const groupCategories = await notificationService.getCategoriesByGroup(userEmail, groupItem.name);
-          categoriesByGroup[groupItem.name] = groupCategories;
-        }
-      }
-    } else {
-      // Get categories only for the specified group
-      const groupCategories = await notificationService.getCategoriesByGroup(userEmail, group);
-      categoriesByGroup[group] = groupCategories;
-    }
-
-    return new Response(JSON.stringify({ categoriesByGroup }), {
+    return new Response(JSON.stringify({ categories }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -55,4 +39,68 @@ export const GET: APIRoute = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-}; 
+};
+
+export const POST: APIRoute = async ({ request, locals }) => {
+  try {
+    const session = await getSession(request);
+    if (!session?.user?.email) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userEmail = session.user.email;
+    const body = await request.json() as { name: string; groupId: string };
+
+    if (!body.name || !body.groupId) {
+      return new Response(JSON.stringify({ error: 'Missing required fields: name and groupId' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const db = getDb(locals.runtime.env.DB);
+
+    // Create a new category under the specified group
+    // First we need to get the group to make sure it exists
+    const group = await db
+      .select()
+      .from(groups)
+      .where(and(
+        eq(groups.id, body.groupId),
+        eq(groups.userEmail, userEmail)
+      ))
+      .get();
+
+    if (!group) {
+      return new Response(JSON.stringify({ error: 'Group not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Then create the category
+    const newCategory = await db
+      .insert(categories)
+      .values({
+        userEmail,
+        name: body.name,
+        groupId: body.groupId
+      })
+      .returning()
+      .get();
+
+    return new Response(JSON.stringify({ category: newCategory }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error creating notification category:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
