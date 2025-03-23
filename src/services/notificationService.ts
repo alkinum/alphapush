@@ -288,6 +288,14 @@ export class NotificationService {
             logger.debug(`Created new group with ID: ${groupId} for name: ${data.group}`);
           }
         }
+      } else if (data.category && data.category !== 'all') {
+        // Create or get default group if category is provided but no group
+        logger.debug('Category provided without group, using default group');
+        const defaultGroup = await this.getOrCreateGroup(data.userEmail, 'Default');
+        if (defaultGroup) {
+          groupId = defaultGroup.id;
+          logger.debug(`Using default group ID: ${groupId}`);
+        }
       }
 
       // If category is provided, get or create the category
@@ -449,6 +457,14 @@ export class NotificationService {
           groupId = null;
           // If we're removing the group, we also need to remove the category
           categoryId = null;
+        }
+      } else if (data.category !== undefined && data.category !== 'all' && !groupId) {
+        // If category is being updated without an existing group, create/get default group
+        logger.debug('Category update provided without group, using default group');
+        const defaultGroup = await this.getOrCreateGroup(userEmail, 'Default');
+        if (defaultGroup) {
+          groupId = defaultGroup.id;
+          logger.debug(`Using default group ID: ${groupId}`);
         }
       }
 
