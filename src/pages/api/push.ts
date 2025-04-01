@@ -50,7 +50,7 @@ interface BarkPushBody {
   badge?: number;
   sound?: string;
   icon?: string;
-  group?: string;
+  notification_group?: string;
   url?: string;
   copy?: string;
   autoCopy?: string;
@@ -126,7 +126,7 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
     title: barkBody.title,
     subtitle: barkBody.subtitle,
     category: barkBody.level, // Map level to category
-    group: barkBody.group,
+    group: barkBody.notification_group,
     icon_url: barkBody.icon,
     navigate_url: barkBody.url, // Map url to navigate_url
     extra: Object.keys(extra).length > 0 ? extra : undefined
@@ -247,7 +247,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       title: mergedParams.title,
       subtitle: mergedParams.subtitle,
       category: mergedParams.category,
-      group: mergedParams.group,
+      notification_group: mergedParams.group,
       userEmail: user.email,
       iconUrl: mergedParams.icon_url,
       navigate_url: mergedParams.navigate_url,

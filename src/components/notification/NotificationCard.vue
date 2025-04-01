@@ -79,8 +79,8 @@ const displayTitle = computed(() => {
     return props.notification.category;
   }
 
-  if (props.notification.group) {
-    return props.notification.group;
+  if (props.notification.notification_group) {
+    return props.notification.notification_group;
   }
 
   // Default title if nothing else is available
@@ -225,7 +225,7 @@ onMounted(async () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('notificationId');
       url.searchParams.delete('category');
-      url.searchParams.delete('group');
+      url.searchParams.delete('notification_group');
       window.history.replaceState({}, '', url);
     }
 

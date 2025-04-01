@@ -32,7 +32,6 @@ pnpm-debug.log*
 # drizzle
 .drizzle*
 drizzle/
-migrations/meta
 
 # local runtime
 run/

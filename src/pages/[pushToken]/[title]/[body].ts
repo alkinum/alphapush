@@ -10,7 +10,7 @@ import { logger } from '@/utils/logger';
  *
  * Query parameters:
  * - url: URL to open when notification is tapped
- * - group: Group name for the notification
+ * - notification_group: Group name for the notification
  * - icon: URL to an icon image
  * - sound: Sound name to play
  * - level: Notification level (active, timeSensitive, passive, critical)
@@ -55,7 +55,7 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
       body: content,
       subtitle: queryParams.get('subtitle') || undefined,
       url: queryParams.get('url') || undefined,
-      group: queryParams.get('group') || undefined,
+      notification_group: queryParams.get('group') || undefined,
       category: queryParams.get('group') || undefined, // Map group to category
       icon: queryParams.get('icon') || undefined,
       sound: queryParams.get('sound') || undefined,
