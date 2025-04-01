@@ -9,13 +9,13 @@ CREATE TABLE `groups` (
 --> statement-breakpoint
 /* First, insert existing unique groups into the groups table */
 WITH RECURSIVE group_data AS (
-	SELECT DISTINCT `group` as name,
+	SELECT DISTINCT `notification_group` as name,
 		`user_email`,
 		MIN(`created_at`) as created_at,
 		MAX(`updated_at`) as updated_at
 	FROM `push_notifications`
-	WHERE `group` IS NOT NULL
-	GROUP BY `group`,
+	WHERE `notification_group` IS NOT NULL
+	GROUP BY `notification_group`,
 		`user_email`
 )
 INSERT
@@ -60,10 +60,10 @@ WITH RECURSIVE category_data AS (
 		MIN(pn.created_at) as created_at,
 		MAX(pn.updated_at) as updated_at
 	FROM `push_notifications` pn
-		JOIN `groups` g ON g.name = pn.`group`
+		JOIN `groups` g ON g.name = pn.`notification_group`
 		AND g.user_email = pn.user_email
 	WHERE pn.category IS NOT NULL
-		AND pn.`group` IS NOT NULL
+		AND pn.`notification_group` IS NOT NULL
 	GROUP BY pn.category,
 		pn.user_email,
 		g.id
@@ -104,7 +104,7 @@ UPDATE `push_notifications`
 SET `group_id` = (
 		SELECT `id`
 		FROM `groups`
-		WHERE `groups`.`name` = `push_notifications`.`group`
+		WHERE `groups`.`name` = `push_notifications`.`notification_group`
 			AND `groups`.`user_email` = `push_notifications`.`user_email`
 		LIMIT 1
 	), `category_id` = (
@@ -112,13 +112,13 @@ SET `group_id` = (
 		FROM `categories` c
 			JOIN `groups` g ON g.`id` = c.`group_id`
 		WHERE c.`name` = `push_notifications`.`category`
-			AND g.`name` = `push_notifications`.`group`
+			AND g.`name` = `push_notifications`.`notification_group`
 			AND g.`user_email` = `push_notifications`.`user_email`
 		LIMIT 1
 	)
-WHERE `group` IS NOT NULL
+WHERE `notification_group` IS NOT NULL
 	OR `category` IS NOT NULL;
 --> statement-breakpoint
 /* Finally, drop old columns */
 ALTER TABLE `push_notifications` DROP COLUMN `category`;
-ALTER TABLE `push_notifications` DROP COLUMN `group`;
+ALTER TABLE `push_notifications` DROP COLUMN `notification_group`;
