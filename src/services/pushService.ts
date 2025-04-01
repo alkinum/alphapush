@@ -73,7 +73,7 @@ export class PushService {
     title?: string;
     subtitle?: string;
     category?: string;
-    group?: string;
+    notification_group?: string;
     userEmail: string;
     iconUrl?: string;
     navigate_url?: string;

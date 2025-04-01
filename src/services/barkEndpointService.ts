@@ -50,7 +50,7 @@ export class BarkEndpointService {
         title: params.title,
         subtitle: params.subtitle,
         category: params.level || params.category,
-        group: params.group,
+        notification_group: params.group,
         userEmail: user.email,
         iconUrl: params.icon,
         navigate_url: params.url,

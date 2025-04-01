@@ -1,0 +1,1 @@
+ALTER TABLE `push_notifications` RENAME COLUMN "group" TO "notification_group";

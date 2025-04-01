@@ -21,7 +21,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
   title: text('title'),
   subtitle: text('subtitle'),
   category: text('category'),
-  group: text('group'),
+  notification_group: text('notification_group'),
   userEmail: text('user_email').notNull(),
   type: text('type'),
   iconUrl: text('icon_url'),

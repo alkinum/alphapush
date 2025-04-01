@@ -124,7 +124,7 @@ self.addEventListener('push', async function (event) {
     data: {
       id: data.id,
       category: data.category,
-      group: data.group,
+      notification_group: data.notification_group,
       type: data.type,
       approvalId: data.approvalId,
       createdAt: data.createdAt,
@@ -188,8 +188,8 @@ function getDefaultTitle(data) {
     return `New ${data.category} notification`;
   }
 
-  if (data.group) {
-    return `New notification from ${data.group}`;
+  if (data.notification_group) {
+    return `New notification from ${data.notification_group}`;
   }
 
   // Fallback to a generic title
@@ -252,7 +252,7 @@ self.addEventListener('notificationclick', function (event) {
   if (event.action === 'detail' || !event.action) {
     url.searchParams.set('notificationId', notificationData.id);
     url.searchParams.set('category', notificationData.category);
-    url.searchParams.set('group', notificationData.group);
+    url.searchParams.set('notification_group', notificationData.notification_group);
   }
 
   event.notification.close();
