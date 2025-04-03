@@ -62,14 +62,5 @@ const notificationId = url.searchParams.get('notificationId');
     <slot name="body-ended" />
     <Toaster client:load />
     <PwaGuidance client:load />
-    <script>
-      import { initializePushModule, registerServiceWorker } from '@/modules/pushSubscription';
-
-      // Initialize push module
-      initializePushModule();
-
-      // Register service worker
-      registerServiceWorker();
-    </script>
   </body>
 </html>

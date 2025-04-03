@@ -486,7 +486,7 @@ export function initializePushModule(): void {
     getVapidKey().then((key) => {
       if (key) {
         vapidPublicKey = key;
-        initializeWebPush(true);
+        initializeWebPush();
       }
     });
   }
