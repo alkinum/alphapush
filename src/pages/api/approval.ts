@@ -2,13 +2,14 @@ import type { APIRoute } from 'astro';
 import { getSession } from 'auth-astro/server';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import type { ApprovalState } from '@/types/approval';
-import { sendSSEvent } from './stream';
 import { getDb } from '@/db';
+import { StreamService } from '@/services/streamService';
 
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     const db = getDb(locals.runtime.env.DB);
     const approvalProcessService = new ApprovalProcessService(db);
+    const streamService = new StreamService();
     const body = (await request.json()) as { approvalId: string; state: ApprovalState };
     const { approvalId, state } = body;
 
@@ -114,11 +115,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // Send SSE event
     if (userEmail) {
-      sendSSEvent(userEmail, 'approvalStateChanged', {
-        notificationId: updatedApproval.notificationId,
-        approvalId: updatedApproval.id,
-        state: updatedApproval.state,
-      });
+      await streamService.sendApprovalStateChangedEvent(
+        userEmail,
+        updatedApproval.notificationId,
+        updatedApproval.id,
+        updatedApproval.state
+      );
     }
 
     // Revoke the access token if it was used

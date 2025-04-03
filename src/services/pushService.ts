@@ -6,10 +6,9 @@ import { userCredentials, subscriptions } from '@/schema';
 import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
-import { NotificationService } from '@/services/notificationService';
+import { StreamService } from '@/services/streamService';
 import type { Notification } from '@/types/notification';
 import { isLocalNetworkUrl } from '@/utils/network';
-import { sendSSEvent } from '@/pages/api/stream';
 import { logger } from '@/utils/logger';
 
 export const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
@@ -48,12 +47,12 @@ export function validateWebhookUrl(url: string): { isValid: boolean; error?: str
 export class PushService {
   private db: ReturnType<typeof getDb>;
   private env: any;
-  private notificationService: NotificationService;
+  private streamService: StreamService;
 
   constructor(db: ReturnType<typeof getDb>, env: any) {
     this.db = db;
     this.env = env;
-    this.notificationService = new NotificationService(db);
+    this.streamService = new StreamService();
   }
 
   /**
@@ -113,21 +112,6 @@ export class PushService {
       approvalId: approvalProcess.id,
       tempAccessToken
     };
-  }
-
-  /**
-   * Send SSE event for notification deletion
-   * @param userEmail User's email
-   * @param notificationId Deleted notification ID
-   */
-  async sendDeleteNotificationSSE(userEmail: string, notificationId: string): Promise<void> {
-    logger.debug(`Sending SSE delete event for notification: ${notificationId}`);
-    try {
-      sendSSEvent(userEmail, 'deleteNotification', { id: notificationId });
-      logger.debug(`Successfully sent SSE delete event for notification: ${notificationId}`);
-    } catch (error) {
-      logger.error(`Error sending SSE delete event for notification ${notificationId}:`, error);
-    }
   }
 
   /**
@@ -220,12 +204,10 @@ export class PushService {
 
       // Always send server-sent event for new notifications
       try {
-        sendSSEvent(user.email, 'newNotification', {
-          ...notification,
+        await this.streamService.sendNewNotificationEvent(user.email, notification, {
           approvalState: options.approvalState,
           approvalId: options.approvalId,
         });
-        logger.debug(`Successfully sent SSE event for notification: ${notification.id}`);
       } catch (error) {
         logger.error(`Error sending SSE event for notification ${notification.id}:`, error);
         // Continue execution as SSE failure should not affect the web push result

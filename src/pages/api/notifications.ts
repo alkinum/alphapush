@@ -3,6 +3,7 @@ import { getSession } from 'auth-astro/server';
 import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
 import { PushService } from '@/services/pushService';
+import { StreamService } from '@/services/streamService';
 
 export const GET: APIRoute = async ({ request, locals }) => {
   try {
@@ -78,7 +79,8 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    await pushService.sendDeleteNotificationSSE(userEmail, notificationId);
+    const streamService = new StreamService();
+    await streamService.sendDeleteNotificationEvent(userEmail, notificationId);
 
     return new Response(JSON.stringify({
       message: 'Notification deleted successfully',

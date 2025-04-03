@@ -4,7 +4,6 @@ import { getDb } from '@/db';
 import { pushNotifications, categories, groups } from '@/schema';
 import type { Notification } from '@/types/notification';
 import { logger } from '@/utils/logger';
-import { sendSSEvent } from '@/pages/api/stream';
 
 export interface NotificationCreateData {
   content: string;
