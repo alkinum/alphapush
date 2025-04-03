@@ -40,7 +40,7 @@
     "@radix-icons/vue": "^1.0.0",
     "@vueuse/core": "^12.8.2",
     "@vueuse/gesture": "^2.0.0",
-    "astro": "^5.5.6",
+    "astro": "^5.6.0",
     "auth-astro": "^4.2.0",
     "base64-arraybuffer": "^1.0.2",
     "class-variance-authority": "^0.7.1",
