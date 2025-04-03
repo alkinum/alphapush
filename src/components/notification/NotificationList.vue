@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import PullToRefresh from '@/components/ui/pull-to-refresh/PullToRefresh.vue';
 import type { Notification } from '@/types/notification';
 
 import { useSSEConnection } from './composable/useSSEConnection';
@@ -25,12 +26,14 @@ interface Props {
   initialGroups?: Group[];
   initialCategories?: Category[];
   categoriesByGroup?: Record<string, Category[]>;
+  enablePullToRefresh?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   initialGroups: () => [],
   initialCategories: () => [],
   categoriesByGroup: () => ({ all: [] }),
+  enablePullToRefresh: true,
 });
 
 // User information
@@ -138,6 +141,19 @@ const handleNotificationIdFromRoute = (notificationId: string) => {
   });
 };
 
+// Pull to refresh handler
+const handleRefresh = async () => {
+  try {
+    // Reset page to 1 and fetch fresh notifications
+    currentPage.value = 1;
+    await fetchNotifications(1, currentGroup.value, currentCategory.value);
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Failed to refresh notifications:', error);
+    return Promise.reject(error);
+  }
+};
+
 onMounted(() => {
   if (userEmail.value) {
     // Initialize known filters
@@ -151,15 +167,8 @@ onMounted(() => {
       fetchNotifications(1, currentGroup.value, currentCategory.value);
     }
 
-    // Setup scroll listener
+    // Setup scroll listener for window
     window.addEventListener('scroll', handleScroll);
-
-    // Listen for reconnect event
-    document.addEventListener('reconnectSSE', () => {
-      console.log('Reconnecting SSE after subscription update...');
-      disconnect();
-      connect();
-    });
 
     // Check for notificationId in body data attribute
     const notificationId = document.body.getAttribute('data-notification-id');
@@ -195,40 +204,48 @@ watch(
   <div class="flex flex-col items-center w-full">
     <div class="w-full pb-6 box-border">
       <template v-if="user">
-        <!-- Add the filter component -->
-        <NotificationGroupSwitch
-          :initialGroup="currentGroup"
-          :initialCategory="currentCategory"
-          :initialGroups="props.initialGroups"
-          :initialCategories="props.initialCategories"
-          :categoriesByGroup="props.categoriesByGroup"
-          @filterChange="handleFilterChange"
-        />
-
-        <template v-if="!initialLoading">
-          <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
-            <NotificationCard
-              v-for="notification in notifications"
-              :key="notification.id"
-              :notification="notification"
-              @deleted="handleNotificationDeleted"
+        <!-- Use the new PullToRefresh component -->
+        <PullToRefresh :onRefresh="handleRefresh" :enabled="props.enablePullToRefresh">
+          <!-- Content wrapper -->
+          <div class="content-wrapper">
+            <!-- Add the filter component -->
+            <NotificationGroupSwitch
+              :initialGroup="currentGroup"
+              :initialCategory="currentCategory"
+              :initialGroups="props.initialGroups"
+              :initialCategories="props.initialCategories"
+              :categoriesByGroup="props.categoriesByGroup"
+              @filterChange="handleFilterChange"
             />
+
+            <div class="notification-content">
+              <template v-if="!initialLoading">
+                <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
+                  <NotificationCard
+                    v-for="notification in notifications"
+                    :key="notification.id"
+                    :notification="notification"
+                    @deleted="handleNotificationDeleted"
+                  />
+                </div>
+                <Card v-else>
+                  <CardContent class="flex items-center justify-center p-6">
+                    <p class="text-muted-foreground">There's no notification here...</p>
+                  </CardContent>
+                </Card>
+              </template>
+              <div v-if="isLoading" class="flex justify-center mt-4">
+                <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
+              </div>
+              <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
+                <p class="text-red-500 text-xs">Failed to load notifications. Please try again.</p>
+                <Button class="mt-2" variant="outline" @click="retryFetchNotifications(currentGroup, currentCategory)"
+                  >Retry</Button
+                >
+              </div>
+            </div>
           </div>
-          <Card v-else>
-            <CardContent class="flex items-center justify-center p-6">
-              <p class="text-muted-foreground">There's no notification here...</p>
-            </CardContent>
-          </Card>
-        </template>
-        <div v-if="isLoading" class="flex justify-center mt-4">
-          <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
-        </div>
-        <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
-          <p class="text-red-500 text-xs">Failed to load notifications. Please try again.</p>
-          <Button class="mt-2" variant="outline" @click="retryFetchNotifications(currentGroup, currentCategory)"
-            >Retry</Button
-          >
-        </div>
+        </PullToRefresh>
       </template>
       <Card v-else>
         <CardContent class="flex items-center justify-center">
@@ -239,4 +256,13 @@ watch(
   </div>
 </template>
 
-<style></style>
+<style>
+.content-wrapper {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
+}
+
+.notification-content {
+  position: relative;
+}
+</style>
