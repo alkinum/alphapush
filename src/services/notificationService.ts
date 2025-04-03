@@ -388,9 +388,6 @@ export class NotificationService {
         groupId
       } as Notification;
 
-      // Send SSE event for the new notification
-      sendSSEvent(data.userEmail, 'newNotification', notificationWithDetails);
-
       return notificationWithDetails;
     } catch (error) {
       logger.error(`Error creating notification: ${error instanceof Error ? error.message : String(error)}`);
@@ -566,9 +563,6 @@ export class NotificationService {
         group: groupName,
       } as Notification;
 
-      // Send SSE event for the updated notification
-      sendSSEvent(userEmail, 'updateNotification', notificationWithDetails);
-
       return notificationWithDetails;
     } catch (error) {
       logger.error(`Error updating notification ${notificationId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -600,11 +594,6 @@ export class NotificationService {
         .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)));
 
       logger.info(`Deleted notification ${notificationId} for user ${userEmail}`);
-
-      // Send SSE event for the deleted notification
-      if (notification) {
-        sendSSEvent(userEmail, 'deleteNotification', { id: notificationId });
-      }
 
       return notification;
     } catch (error) {

@@ -116,6 +116,21 @@ export class PushService {
   }
 
   /**
+   * Send SSE event for notification deletion
+   * @param userEmail User's email
+   * @param notificationId Deleted notification ID
+   */
+  async sendDeleteNotificationSSE(userEmail: string, notificationId: string): Promise<void> {
+    logger.debug(`Sending SSE delete event for notification: ${notificationId}`);
+    try {
+      sendSSEvent(userEmail, 'deleteNotification', { id: notificationId });
+      logger.debug(`Successfully sent SSE delete event for notification: ${notificationId}`);
+    } catch (error) {
+      logger.error(`Error sending SSE delete event for notification ${notificationId}:`, error);
+    }
+  }
+
+  /**
    * Send push notifications to all user subscriptions
    * @param user User to send notifications to
    * @param notification Notification to send
@@ -203,7 +218,7 @@ export class PushService {
         }
       }
 
-      // Send server-sent event
+      // Always send server-sent event for new notifications
       try {
         sendSSEvent(user.email, 'newNotification', {
           ...notification,

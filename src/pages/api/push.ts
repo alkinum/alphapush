@@ -33,7 +33,6 @@ interface PushBody {
   icon_url?: string;
   type?: string;
   webhook_url?: string;
-  topic?: string;
   navigate_url?: string;
   extra?: Record<string, any>;
 }
@@ -50,7 +49,7 @@ interface BarkPushBody {
   badge?: number;
   sound?: string;
   icon?: string;
-  notification_group?: string;
+  group?: string;
   url?: string;
   copy?: string;
   autoCopy?: string;
@@ -126,7 +125,7 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
     title: barkBody.title,
     subtitle: barkBody.subtitle,
     category: barkBody.level, // Map level to category
-    group: barkBody.notification_group,
+    group: barkBody.group,
     icon_url: barkBody.icon,
     navigate_url: barkBody.url, // Map url to navigate_url
     extra: Object.keys(extra).length > 0 ? extra : undefined
@@ -202,7 +201,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...(body.icon_url && { icon_url: body.icon_url }),
       ...(body.type && { type: body.type }),
       ...(body.webhook_url && { webhook_url: body.webhook_url }),
-      ...(body.topic && { topic: body.topic }),
       ...(body.navigate_url && { navigate_url: body.navigate_url }),
       ...(body.extra && { extra: body.extra }),
     };
@@ -336,7 +334,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         approvalId,
         tempAccessToken,
         approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
-        topic: mergedParams.topic || 'Default',
+        topic: mergedParams.category || 'Default',
       }
     );
 
