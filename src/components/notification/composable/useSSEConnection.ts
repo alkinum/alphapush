@@ -113,8 +113,16 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
           const messageEvent = event as unknown as MessageEvent;
           const data = JSON.parse(messageEvent.data);
 
-          if (data.id && handlers.onDeleteNotification) {
-            handlers.onDeleteNotification(data.id);
+          if (data.id) {
+            document.dispatchEvent(new CustomEvent('notificationDeleted', {
+              detail: {
+                notificationId: data.id
+              }
+            }));
+
+            if (handlers.onDeleteNotification) {
+              handlers.onDeleteNotification(data.id);
+            }
           }
         } catch (error) {
           console.error('Error handling delete notification event:', error);
