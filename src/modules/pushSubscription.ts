@@ -2,6 +2,7 @@ import { signIn, signOut } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast/use-toast';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
 import { StreamErrorCode } from '@/pages/api/stream';
+import { isSafari } from '@/lib/utils';
 
 // Constants
 const FINGERPRINTS_STORAGE_KEY = 'userFingerprints';
@@ -127,63 +128,98 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /**
+ * Helper function to convert base64 string to Uint8Array for VAPID key
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+/**
+ * Check if Safari supports declarative web push (window.pushManager)
+ */
+function supportsSafariDeclarativePush(): boolean {
+  return isSafari() && 'pushManager' in window && 'subscribe' in (window as any).pushManager;
+}
+
+/**
  * Unsubscribe from web push for a specific fingerprint
  */
 export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, userEmail?: string): Promise<boolean> {
-  if ('serviceWorker' in navigator && 'PushManager' in window) {
-    try {
+  try {
+    let subscription: PushSubscription | null = null;
+
+    // Handle Safari declarative push
+    if (supportsSafariDeclarativePush()) {
+      const safariPushManager = (window as any).pushManager;
+      subscription = await safariPushManager.getSubscription();
+
+      if (subscription) {
+        await subscription.unsubscribe();
+        console.debug('Unsubscribed from Safari push subscription in browser');
+      }
+    }
+    // Handle service worker-based push
+    else if ('serviceWorker' in navigator && 'PushManager' in window) {
       const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
+      subscription = await registration.pushManager.getSubscription();
 
       // If we have an active subscription, unsubscribe from it
       if (subscription) {
         await subscription.unsubscribe();
         console.debug('Unsubscribed from push subscription in browser');
       }
+    }
 
-      // If we have a fingerprint to unsubscribe, delete it from the server
-      if (fingerprintToUnsubscribe) {
-        const email = userEmail || document.body.getAttribute('data-user-email');
-        if (!email) {
-          throw new Error('User email not found');
-        }
-
-        const response = await fetch('/api/subscription', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ deviceFingerprint: fingerprintToUnsubscribe }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            console.debug('Subscription not found on server, already deleted');
-          } else {
-            throw new Error(`Failed to delete subscription on server: ${response.status} ${response.statusText}`);
-          }
-        } else {
-          console.debug('Unsubscribed from push subscription on server');
-        }
-
-        // Remove the fingerprint from storage if provided userEmail
-        if (userEmail) {
-          removeUserFingerprint(userEmail);
-        }
+    // If we have a fingerprint to unsubscribe, delete it from the server
+    if (fingerprintToUnsubscribe) {
+      const email = userEmail || document.body.getAttribute('data-user-email');
+      if (!email) {
+        throw new Error('User email not found');
       }
 
-      return true;
-    } catch (error) {
-      console.error('Unsubscribe web push failed:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to unsubscribe from Web Push. Please try again.',
-        variant: 'destructive',
+      const response = await fetch('/api/subscription', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceFingerprint: fingerprintToUnsubscribe }),
       });
-      return false;
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.debug('Subscription not found on server, already deleted');
+        } else {
+          throw new Error(`Failed to delete subscription on server: ${response.status} ${response.statusText}`);
+        }
+      } else {
+        console.debug('Unsubscribed from push subscription on server');
+      }
+
+      // Remove the fingerprint from storage if provided userEmail
+      if (userEmail) {
+        removeUserFingerprint(userEmail);
+      }
     }
+
+    return true;
+  } catch (error) {
+    console.error('Unsubscribe web push failed:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to unsubscribe from Web Push. Please try again.',
+      variant: 'destructive',
+    });
+    return false;
   }
-  return false;
 }
 
 /**
@@ -201,8 +237,15 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
 
   try {
     // Get current subscription
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    let subscription: PushSubscription | null = null;
+
+    if (supportsSafariDeclarativePush()) {
+      const safariPushManager = (window as any).pushManager;
+      subscription = await safariPushManager.getSubscription();
+    } else if ('serviceWorker' in navigator && 'PushManager' in window) {
+      const registration = await navigator.serviceWorker.ready;
+      subscription = await registration.pushManager.getSubscription();
+    }
 
     if (!subscription) {
       console.debug('No active subscription found, initializing web push...');
@@ -248,23 +291,68 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
  * Subscribe to web push notifications
  * Compares application server keys and unsubscribes if keys don't match
  * Registers the subscription with the server using PUT method
+ * Supports both Safari declarative push and service worker-based push
  */
 export async function subscribeWebPush(publicKey: string): Promise<boolean> {
-  if ('serviceWorker' in navigator && 'PushManager' in window) {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const userEmail = document.body.getAttribute('data-user-email');
+  try {
+    const userEmail = document.body.getAttribute('data-user-email');
 
-      if (!userEmail) {
-        throw new Error('User email not found');
-      }
+    if (!userEmail) {
+      throw new Error('User email not found');
+    }
 
-      // Get and validate fingerprint
-      const newFingerprint = await getCombinedFingerprint(userEmail);
-      const storedFingerprint = getUserFingerprint(userEmail);
+    // Get and validate fingerprint
+    const newFingerprint = await getCombinedFingerprint(userEmail);
+    const storedFingerprint = getUserFingerprint(userEmail);
+
+    let subscription: PushSubscription | null = null;
+
+    // Handle Safari declarative push (window.pushManager)
+    if (supportsSafariDeclarativePush()) {
+      console.debug('Using Safari declarative web push');
+      const safariPushManager = (window as any).pushManager;
 
       // Check for existing subscription
-      let subscription = await registration.pushManager.getSubscription();
+      subscription = await safariPushManager.getSubscription();
+
+      // Compare the existing subscription's application server key with the new one
+      if (subscription) {
+        const existingKey = arrayBufferToBase64(subscription.options.applicationServerKey as ArrayBuffer);
+        const normalizedPublicKey = publicKey.replace(/=/g, ''); // Remove padding if any
+
+        if (existingKey !== normalizedPublicKey) {
+          console.debug('Application server key mismatch, unsubscribing old subscription');
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+
+      // If fingerprint changed and we have an old one, unsubscribe it from server
+      if (storedFingerprint && storedFingerprint !== newFingerprint) {
+        console.debug('Fingerprint changed, unsubscribing old fingerprint');
+        await unsubscribeWebPush(storedFingerprint, userEmail);
+      }
+
+      // Subscribe only if there's no valid subscription
+      if (!subscription) {
+        console.debug('Creating new Safari push subscription');
+        const applicationServerKey = urlBase64ToUint8Array(publicKey);
+
+        subscription = await safariPushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: applicationServerKey,
+        });
+      } else {
+        console.debug('Using existing Safari push subscription');
+      }
+    }
+    // Handle service worker-based push
+    else if ('serviceWorker' in navigator && 'PushManager' in window) {
+      console.debug('Using service worker-based web push');
+      const registration = await navigator.serviceWorker.ready;
+
+      // Check for existing subscription
+      subscription = await registration.pushManager.getSubscription();
 
       // Compare the existing subscription's application server key with the new one
       if (subscription) {
@@ -294,55 +382,66 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       } else {
         console.debug('Using existing push subscription');
       }
+    } else {
+      throw new Error('Push notifications are not supported in this browser');
+    }
 
-      // Update fingerprint in storage
-      deviceFingerprint = newFingerprint;
-      saveUserFingerprint(userEmail, deviceFingerprint);
+    // Update fingerprint in storage
+    deviceFingerprint = newFingerprint;
+    saveUserFingerprint(userEmail, deviceFingerprint);
 
-      // Send subscription details to server using PUT method
-      const response = await fetch('/api/subscription', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subscription,
-          deviceFingerprint: newFingerprint
-        }),
-      });
+    // Send subscription details to server using PUT method
+    const response = await fetch('/api/subscription', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        subscription,
+        deviceFingerprint: newFingerprint,
+        isSafari: supportsSafariDeclarativePush(),
+      }),
+    });
 
-      if (!response.ok) {
-        throw new Error(`Failed to register subscription on server: ${response.status} ${response.statusText}`);
-      }
+    if (!response.ok) {
+      throw new Error(`Failed to register subscription on server: ${response.status} ${response.statusText}`);
+    }
 
-      console.debug('Subscription registered successfully with server');
+    console.debug('Subscription registered successfully with server');
 
-      // Dispatch subscription success event
-      document.dispatchEvent(new CustomEvent('subscriptionSuccess'));
-      return true;
-    } catch (error) {
-      console.error('Web Push subscription failed:', error);
-      // Cancel the subscription if it exists
-      try {
+    // Dispatch subscription success event
+    document.dispatchEvent(new CustomEvent('subscriptionSuccess'));
+    return true;
+  } catch (error) {
+    console.error('Web Push subscription failed:', error);
+    // Cancel the subscription if it exists
+    try {
+      if (supportsSafariDeclarativePush()) {
+        const safariPushManager = (window as any).pushManager;
+        const subscription = await safariPushManager.getSubscription();
+        if (subscription) {
+          await subscription.unsubscribe();
+          console.debug('Cleaned up failed Safari subscription');
+        }
+      } else if ('serviceWorker' in navigator && 'PushManager' in window) {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         if (subscription) {
           await subscription.unsubscribe();
           console.debug('Cleaned up failed subscription');
         }
-      } catch (cleanupError) {
-        console.error('Failed to clean up subscription after error:', cleanupError);
       }
-
-      toast({
-        title: 'Error',
-        description: 'Push subscription failed. Please reload the app and try again.',
-        variant: 'destructive',
-      });
-      return false;
+    } catch (cleanupError) {
+      console.error('Failed to clean up subscription after error:', cleanupError);
     }
+
+    toast({
+      title: 'Error',
+      description: 'Push subscription failed. Please reload the app and try again.',
+      variant: 'destructive',
+    });
+    return false;
   }
-  return false;
 }
 
 /**

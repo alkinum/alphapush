@@ -115,6 +115,174 @@ export class PushService {
   }
 
   /**
+   * Format message for Safari declarative push
+   * @param notification The notification object
+   * @param options Additional options for the notification
+   * @returns Formatted message for Safari
+   */
+  private formatSafariMessage(
+    notification: Notification,
+    options: {
+      approvalId?: string;
+      tempAccessToken?: string;
+      approvalState?: string;
+    } = {}
+  ): string {
+    // Get the app URL from environment, fallback to current origin
+    const appUrl = this.env.APP_URL || 'https://push.alkinum.dev';
+
+    // Build navigate URL with query parameters since Safari doesn't support data field
+    const baseUrl = notification.navigate_url || '/';
+
+    // Use appUrl as base for relative URLs
+    const fullBaseUrl = baseUrl.startsWith('http') ? baseUrl : `${appUrl}${baseUrl}`;
+    const url = new URL(fullBaseUrl);
+
+    // Add all notification data as query parameters (matching sw.js data fields)
+    url.searchParams.set('id', notification.id); // Maps to notificationData.id
+    url.searchParams.set('notificationId', notification.id);
+
+    if (notification.categoryId) {
+      url.searchParams.set('categoryId', notification.categoryId);
+      url.searchParams.set('category', notification.categoryId); // Maps to notificationData.category
+    }
+
+    if (notification.groupId) {
+      url.searchParams.set('groupId', notification.groupId);
+      url.searchParams.set('notification_group', notification.groupId); // Maps to notificationData.notification_group
+    }
+
+    if (notification.type) {
+      url.searchParams.set('type', notification.type);
+    }
+
+    if (options.approvalId) {
+      url.searchParams.set('approvalId', options.approvalId);
+    }
+
+    if (options.approvalState) {
+      url.searchParams.set('approvalState', options.approvalState);
+    }
+
+    if (options.tempAccessToken) {
+      url.searchParams.set('tempAccessToken', options.tempAccessToken);
+    }
+
+    if (notification.extraInfo) {
+      url.searchParams.set('extraInfo', notification.extraInfo);
+    }
+
+    if (notification.navigate_url) {
+      url.searchParams.set('navigateUrl', notification.navigate_url);
+    }
+
+    // Add createdAt timestamp (current time since notification is being sent now)
+    url.searchParams.set('createdAt', Date.now().toString());
+
+    const navigateUrl = url.toString();
+
+    // Build actions based on notification type
+    const actions = [];
+    if (notification.type === 'approval-process' && options.approvalId && options.tempAccessToken) {
+      // Create URLs for approve and reject actions
+      const approveUrl = new URL(fullBaseUrl);
+      approveUrl.searchParams.set('id', notification.id);
+      approveUrl.searchParams.set('approvalId', options.approvalId);
+      approveUrl.searchParams.set('action', 'approve');
+      approveUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
+      approveUrl.searchParams.set('notificationId', notification.id);
+      approveUrl.searchParams.set('type', notification.type);
+      approveUrl.searchParams.set('createdAt', Date.now().toString());
+      if (notification.categoryId) {
+        approveUrl.searchParams.set('category', notification.categoryId);
+      }
+      if (notification.groupId) {
+        approveUrl.searchParams.set('notification_group', notification.groupId);
+      }
+
+      const rejectUrl = new URL(fullBaseUrl);
+      rejectUrl.searchParams.set('id', notification.id);
+      rejectUrl.searchParams.set('approvalId', options.approvalId);
+      rejectUrl.searchParams.set('action', 'reject');
+      rejectUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
+      rejectUrl.searchParams.set('notificationId', notification.id);
+      rejectUrl.searchParams.set('type', notification.type);
+      rejectUrl.searchParams.set('createdAt', Date.now().toString());
+      if (notification.categoryId) {
+        rejectUrl.searchParams.set('category', notification.categoryId);
+      }
+      if (notification.groupId) {
+        rejectUrl.searchParams.set('notification_group', notification.groupId);
+      }
+
+      actions.push(
+        {
+          action: 'reject',
+          title: 'Reject',
+          navigate: rejectUrl.toString(),
+        },
+        {
+          action: 'approve',
+          title: 'Approve',
+          navigate: approveUrl.toString(),
+        }
+      );
+    } else {
+      // Default action for non-approval notifications
+      const detailUrl = new URL(fullBaseUrl);
+      detailUrl.searchParams.set('id', notification.id);
+      detailUrl.searchParams.set('notificationId', notification.id);
+      detailUrl.searchParams.set('action', 'detail');
+      if (notification.type) {
+        detailUrl.searchParams.set('type', notification.type);
+      }
+      if (notification.categoryId) {
+        detailUrl.searchParams.set('categoryId', notification.categoryId);
+        detailUrl.searchParams.set('category', notification.categoryId);
+      }
+      if (notification.groupId) {
+        detailUrl.searchParams.set('groupId', notification.groupId);
+        detailUrl.searchParams.set('notification_group', notification.groupId);
+      }
+
+      actions.push({
+        action: 'detail',
+        title: 'View Details',
+        navigate: detailUrl.toString(),
+      });
+    }
+
+    // Create declarative push message format for Safari
+    const declarativeMessage = {
+      web_push: 8030,
+      notification: {
+        title: notification.title || 'Notification',
+        body: notification.content,
+        navigate: navigateUrl,
+        silent: false,
+        ...(notification.iconUrl && { icon: notification.iconUrl }),
+        ...(notification.subtitle && { tag: notification.subtitle }),
+        // Include data field matching sw.js notification data structure
+        data: {
+          id: notification.id,
+          category: notification.categoryId,
+          notification_group: notification.groupId,
+          type: notification.type,
+          approvalId: options.approvalId,
+          createdAt: Date.now(),
+          tempAccessToken: options.tempAccessToken,
+          navigateUrl: notification.navigate_url,
+          extraInfo: notification.extraInfo,
+          approvalState: options.approvalState,
+        },
+        actions,
+      },
+    };
+
+    return JSON.stringify(declarativeMessage);
+  }
+
+  /**
    * Send push notifications to all user subscriptions
    * @param user User to send notifications to
    * @param notification Notification to send
@@ -153,26 +321,32 @@ export class PushService {
       const subscriptionService = new SubscriptionService(this.env.DB);
       const subscriptionsToRemove: string[] = [];
 
-      // Construct the message
-      const message = JSON.stringify({
-        ...notification,
-        approvalState: options.approvalState,
-        approvalId: options.approvalId,
-        tempAccessToken: options.tempAccessToken,
-      });
-
-      // Check message size
-      if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
-        logger.error(`Message size exceeds 4KB limit for notification: ${notification.id}`);
-        return { success: false, error: 'Message size exceeds 4KB limit' };
-      }
-
       // Send notifications to all subscriptions
       for (const sub of userSubscriptions) {
         const subscription: PushSubscription = JSON.parse(sub.subscription);
 
+        // Format message based on subscription type (Safari vs standard)
+        const message = sub.isSafari
+          ? this.formatSafariMessage(notification, options)
+          : JSON.stringify({
+            ...notification,
+            approvalState: options.approvalState,
+            approvalId: options.approvalId,
+            tempAccessToken: options.tempAccessToken,
+          });
+
+        // Check message size
+        if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
+          logger.error(`Message size exceeds 4KB limit for notification: ${notification.id}`);
+          failedPushes.push({
+            subscriptionId: sub.id,
+            reason: 'Message size exceeds 4KB limit',
+          });
+          continue;
+        }
+
         try {
-          logger.debug(`Sending notification to subscription: ${sub.id}`);
+          logger.debug(`Sending notification to subscription: ${sub.id} (isSafari: ${sub.isSafari})`);
           await webPushService.sendNotification(subscription, message, {
             ttl: 60,
             topic: options.topic || 'Default',

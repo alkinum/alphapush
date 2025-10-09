@@ -13,3 +13,21 @@ export function valueUpdater<T extends Updater<any>>(updaterOrValue: T, ref: Ref
       ? updaterOrValue(ref.value)
       : updaterOrValue
 }
+
+/**
+ * Detect if the browser is Safari
+ */
+export function isSafari(): boolean {
+  if (typeof navigator === 'undefined') return false;
+
+  const ua = navigator.userAgent;
+  const vendor = navigator.vendor;
+
+  // Safari has "Safari" in userAgent and "Apple Computer, Inc." as vendor
+  // Also check it's not Chrome (which also contains "Safari" in UA)
+  return (
+    /Safari/i.test(ua) &&
+    /Apple Computer/.test(vendor) &&
+    !/Chrome|CriOS|Edg/i.test(ua)
+  );
+}

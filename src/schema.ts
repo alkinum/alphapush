@@ -121,6 +121,7 @@ export const subscriptions = sqliteTable('subscriptions', {
   userEmail: text('user_email').notNull(),
   deviceFingerprint: text('device_fingerprint').notNull(),
   subscription: text('subscription').notNull(),
+  isSafari: integer('is_safari', { mode: 'boolean' }).default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
