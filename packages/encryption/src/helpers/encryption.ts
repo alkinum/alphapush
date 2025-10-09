@@ -65,9 +65,9 @@ export async function decrypt(encryptedContent: string, masterKey: string, nonce
 
   // Decrypt the data
   const decryptedData = await crypto.subtle.decrypt(
-    { name: ALGORITHM, iv: nonceBuffer, tagLength: TAG_LENGTH },
+    { name: ALGORITHM, iv: nonceBuffer as BufferSource, tagLength: TAG_LENGTH },
     derivedKey,
-    encryptedData,
+    encryptedData as BufferSource,
   );
 
   // Decode the decrypted data to a string
@@ -92,14 +92,14 @@ async function deriveKey(masterKey: string, salt: Uint8Array): Promise<CryptoKey
   const derivedKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as BufferSource,
       iterations: 10000,
       hash: 'SHA-256',
     },
     keyMaterial,
     { name: ALGORITHM, length: KEY_LENGTH },
     false,
-    ['encrypt', 'decrypt'],
+    ['encrypt', 'decrypt'] as KeyUsage[],
   );
 
   keyCache.set(cacheKey, derivedKey);

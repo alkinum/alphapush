@@ -1,14 +1,14 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 
 import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
 import { groups, categories } from '@/schema';
 
-export const GET: APIRoute = async ({ request, locals }) => {
+export const GET: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -17,10 +17,10 @@ export const GET: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const url = new URL(request.url);
+    const url = new URL(context.request.url);
     const groupParam = url.searchParams.get('group') || 'all';
 
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
 
     let categoriesByGroup: Record<string, any[]> = {};
@@ -86,9 +86,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
 };
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -97,7 +97,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const body = await request.json() as { name: string; groupId: string };
+    const body = await context.request.json() as { name: string; groupId: string };
 
     if (!body.name || !body.groupId) {
       return new Response(JSON.stringify({ error: 'Missing required fields: name and groupId' }), {
@@ -106,7 +106,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
 
     // Create a new category under the specified group
     // First we need to get the group to make sure it exists

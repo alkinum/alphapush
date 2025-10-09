@@ -1,5 +1,5 @@
 ---
-import { getSession } from 'auth-astro/server';
+import { getSession } from '@/lib/auth';
 import { Toaster } from '@/components/ui/toast';
 import PwaGuidance from '@/components/mobile/PwaGuidance.vue';
 import EnhanceExperienceAlert from '@/components/alert/EnhanceExperienceAlert.vue';
@@ -9,7 +9,7 @@ import NotificationPermissionAlert from '@/components/alert/NotificationPermissi
 import '@/styles/globals.css';
 import { ClientRouter } from 'astro:transitions';
 
-const session = await getSession(Astro.request);
+const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 const isLoggedIn = !!session?.user && isAllowedUser;

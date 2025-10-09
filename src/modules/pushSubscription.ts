@@ -1,4 +1,4 @@
-import { signIn, signOut } from 'auth-astro/client';
+import { signIn, signOut } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast/use-toast';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
 import { StreamErrorCode } from '@/pages/api/stream';

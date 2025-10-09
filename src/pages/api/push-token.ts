@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { PushTokenService } from '@/services/pushTokenService';
 
-export const GET: APIRoute = async ({ request, locals }) => {
+export const GET: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -13,7 +13,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const pushTokenService = new PushTokenService(locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(context.locals.runtime.env.DB);
 
     const pushToken = await pushTokenService.getPushToken(userEmail);
 
@@ -37,9 +37,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
 };
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -48,9 +48,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const pushTokenService = new PushTokenService(locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(context.locals.runtime.env.DB);
 
-    const body = await request.json();
+    const body = await context.request.json();
     const { action } = body as { action?: string };
 
     if (action !== 'reset') {

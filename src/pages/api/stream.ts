@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
@@ -155,8 +155,8 @@ export function sendSSEvent(userEmail: string, event: string, data: any) {
   });
 }
 
-export const GET: APIRoute = async ({ request, locals }) => {
-  const session = await getSession(request);
+export const GET: APIRoute = async (context) => {
+  const session = await getSessionFromContext(context);
   if (!session?.user?.email) {
     logger.warn(`SSE connection attempt without authentication`);
     return new Response(JSON.stringify({
@@ -169,9 +169,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
 
   const userEmail = session.user.email;
-  const db = getDb(locals.runtime.env.DB);
+  const db = getDb(context.locals.runtime.env.DB);
 
-  const url = new URL(request.url);
+  const url = new URL(context.request.url);
   const deviceFingerprint = url.searchParams.get('fingerprint');
 
   if (!deviceFingerprint) {
@@ -397,9 +397,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const abortHandler = async () => {
     logger.debug(`Request aborted for connection ${connectionId} on device ${deviceFingerprint}`);
     await cleanup();
-    request.signal.removeEventListener('abort', abortHandler);
+    context.request.signal.removeEventListener('abort', abortHandler);
   };
-  request.signal.addEventListener('abort', abortHandler);
+  context.request.signal.addEventListener('abort', abortHandler);
 
   // Return the SSE stream
   return new Response(readable, {

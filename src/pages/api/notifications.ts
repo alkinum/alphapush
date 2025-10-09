@@ -1,13 +1,12 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
-import { PushService } from '@/services/pushService';
 import { StreamService } from '@/services/streamService';
 
-export const GET: APIRoute = async ({ request, locals }) => {
+export const GET: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -16,13 +15,13 @@ export const GET: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const url = new URL(request.url);
+    const url = new URL(context.request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
     const pageSize = parseInt(url.searchParams.get('pageSize') || '10');
     const group = url.searchParams.get('group') || undefined;
     const category = url.searchParams.get('category') || undefined;
 
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
 
     const result = await notificationService.getNotifications(userEmail, {
@@ -45,9 +44,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
 };
 
-export const DELETE: APIRoute = async ({ request, locals }) => {
+export const DELETE: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -56,7 +55,7 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const url = new URL(request.url);
+    const url = new URL(context.request.url);
     const notificationId = url.searchParams.get('id');
 
     if (!notificationId) {
@@ -66,9 +65,8 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
-    const pushService = new PushService(db, locals.runtime.env);
 
     const deletedNotification = await notificationService.deleteNotification(notificationId, userEmail);
 

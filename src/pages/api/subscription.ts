@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
@@ -11,9 +11,9 @@ function isValidSHA256(hash: string): boolean {
   return sha256Regex.test(hash);
 }
 
-export const PUT: APIRoute = async ({ request, locals }) => {
+export const PUT: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       logger.warn('Unauthorized subscription update attempt');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -23,7 +23,7 @@ export const PUT: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const body = (await request.json()) as { subscription?: unknown; deviceFingerprint?: string };
+    const body = (await context.request.json()) as { subscription?: unknown; deviceFingerprint?: string };
     const { subscription, deviceFingerprint } = body;
 
     if (!subscription || typeof subscription !== 'object' || !deviceFingerprint) {
@@ -44,7 +44,7 @@ export const PUT: APIRoute = async ({ request, locals }) => {
     }
 
     logger.debug('Processing subscription update:', { userEmail, deviceFingerprint });
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
 
     const existingSubscription = await db
       .select()
@@ -99,9 +99,9 @@ export const PUT: APIRoute = async ({ request, locals }) => {
   }
 };
 
-export const DELETE: APIRoute = async ({ request, locals }) => {
+export const DELETE: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       logger.warn('Unauthorized subscription deletion attempt');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -111,7 +111,7 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const body = (await request.json()) as { deviceFingerprint?: string };
+    const body = (await context.request.json()) as { deviceFingerprint?: string };
     const { deviceFingerprint } = body;
 
     if (!deviceFingerprint) {
@@ -132,7 +132,7 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
     }
 
     logger.debug('Processing subscription deletion:', { userEmail, deviceFingerprint });
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
 
     const result = await db
       .delete(subscriptions)
