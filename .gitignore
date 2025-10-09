@@ -34,5 +34,7 @@ pnpm-debug.log*
 drizzle/
 
 # local runtime
+.turbo/
 run/
 wrangler.toml
+.claude/settings.local.json

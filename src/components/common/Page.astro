@@ -1,5 +1,5 @@
 ---
-import { getSession } from 'auth-astro/server';
+import { getSession } from '@/lib/auth';
 import { Toaster } from '@/components/ui/toast';
 import PwaGuidance from '@/components/mobile/PwaGuidance.vue';
 import EnhanceExperienceAlert from '@/components/alert/EnhanceExperienceAlert.vue';
@@ -7,8 +7,9 @@ import Header from './Header.astro';
 import NotificationPermissionAlert from '@/components/alert/NotificationPermissionAlert.vue';
 
 import '@/styles/globals.css';
+import { ClientRouter } from 'astro:transitions';
 
-const session = await getSession(Astro.request);
+const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
 const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
 const isAllowedUser = session?.user?.email && allowedEmails.includes(session.user.email);
 const isLoggedIn = !!session?.user && isAllowedUser;
@@ -23,6 +24,10 @@ function isMobileDevice(ua: string) {
 }
 
 const isMobile = isMobileDevice(userAgent);
+
+// Check for notificationId in URL
+const url = new URL(Astro.request.url);
+const notificationId = url.searchParams.get('notificationId');
 ---
 
 <html class="dark" lang="en">
@@ -38,8 +43,14 @@ const isMobile = isMobileDevice(userAgent);
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <ClientRouter />
   </head>
-  <body class="min-h-screen overflow-x-hidden" data-user-logged-in={isLoggedIn} data-user-email={userEmail}>
+  <body
+    class="min-h-screen overflow-x-hidden"
+    data-user-logged-in={isLoggedIn}
+    data-user-email={userEmail}
+    data-notification-id={notificationId || ''}
+  >
     <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />
       <main class="w-full">
@@ -51,14 +62,5 @@ const isMobile = isMobileDevice(userAgent);
     <slot name="body-ended" />
     <Toaster client:load />
     <PwaGuidance client:load />
-    <script>
-      import { initializePushModule, registerServiceWorker } from '@/modules/pushSubscription';
-
-      // Initialize push module
-      initializePushModule();
-
-      // Register service worker
-      registerServiceWorker();
-    </script>
   </body>
 </html>

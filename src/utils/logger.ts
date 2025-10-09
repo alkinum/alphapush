@@ -15,11 +15,28 @@ interface LoggerOptions {
   };
   // Include timestamp in log messages
   includeTimestamp?: boolean;
+  // Enable colored output
+  enableColors?: boolean;
 }
+
+// ANSI color codes
+const COLORS = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m',
+} as const;
 
 class Logger {
   private enabledLevels: Record<LogLevel, boolean>;
   private includeTimestamp: boolean;
+  private enableColors: boolean;
 
   constructor(options?: LoggerOptions) {
     this.enabledLevels = {
@@ -29,14 +46,38 @@ class Logger {
       error: options?.enabledLevels?.error ?? true,
     };
     this.includeTimestamp = options?.includeTimestamp ?? true;
+    this.enableColors = options?.enableColors ?? true;
   }
 
   /**
-   * Format the log message with optional timestamp
+   * Format the log message with optional timestamp and colors
    */
   private formatMessage(level: LogLevel, message: string): string {
     const timestamp = this.includeTimestamp ? `[${new Date().toISOString()}] ` : '';
-    return `${timestamp}[${level.toUpperCase()}] ${message}`;
+    const levelColor = this.getLevelColor(level);
+    const resetColor = this.enableColors ? COLORS.reset : '';
+
+    return `${timestamp}${levelColor}[${level.toUpperCase()}]${resetColor} ${message}`;
+  }
+
+  /**
+   * Get the appropriate color for each log level
+   */
+  private getLevelColor(level: LogLevel): string {
+    if (!this.enableColors) return '';
+
+    switch (level) {
+      case 'debug':
+        return COLORS.cyan;
+      case 'info':
+        return COLORS.green;
+      case 'warn':
+        return COLORS.yellow;
+      case 'error':
+        return COLORS.red;
+      default:
+        return COLORS.white;
+    }
   }
 
   /**

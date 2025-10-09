@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
+import { logger } from '@/utils/logger';
 
 // Helper function: Validate SHA256 hash
 function isValidSHA256(hash: string): boolean {
@@ -10,10 +11,11 @@ function isValidSHA256(hash: string): boolean {
   return sha256Regex.test(hash);
 }
 
-export const PUT: APIRoute = async ({ request, locals }) => {
+export const PUT: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
+      logger.warn('Unauthorized subscription update attempt');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -21,10 +23,11 @@ export const PUT: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const body = (await request.json()) as { subscription?: unknown; deviceFingerprint?: string };
-    const { subscription, deviceFingerprint } = body;
+    const body = (await context.request.json()) as { subscription?: unknown; deviceFingerprint?: string; isSafari?: boolean };
+    const { subscription, deviceFingerprint, isSafari = false } = body;
 
     if (!subscription || typeof subscription !== 'object' || !deviceFingerprint) {
+      logger.warn('Invalid subscription data received:', { userEmail, hasSubscription: !!subscription, hasDeviceFingerprint: !!deviceFingerprint });
       return new Response(JSON.stringify({ error: 'Missing or invalid subscription data or device fingerprint' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -33,13 +36,15 @@ export const PUT: APIRoute = async ({ request, locals }) => {
 
     // Validate device fingerprint as a valid SHA256 hash
     if (!isValidSHA256(deviceFingerprint)) {
+      logger.warn('Invalid device fingerprint format:', { userEmail, deviceFingerprint });
       return new Response(JSON.stringify({ error: 'Invalid device fingerprint format' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    const db = getDb(locals.runtime.env.DB);
+    logger.debug('Processing subscription update:', { userEmail, deviceFingerprint, isSafari });
+    const db = getDb(context.locals.runtime.env.DB);
 
     const existingSubscription = await db
       .select()
@@ -48,13 +53,19 @@ export const PUT: APIRoute = async ({ request, locals }) => {
       .get();
 
     if (existingSubscription) {
+      logger.debug('Updating existing subscription:', { userEmail, deviceFingerprint, isSafari });
       const result = await db
         .update(subscriptions)
-        .set({ subscription: JSON.stringify(subscription), updatedAt: new Date() })
+        .set({
+          subscription: JSON.stringify(subscription),
+          isSafari: isSafari ? 1 : 0,
+          updatedAt: new Date()
+        })
         .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.deviceFingerprint, deviceFingerprint)))
         .returning({ updatedAt: subscriptions.updatedAt })
         .get();
 
+      logger.info('Subscription updated successfully:', { userEmail, deviceFingerprint, isSafari, updatedAt: result.updatedAt });
       return new Response(
         JSON.stringify({ message: 'Subscription updated successfully', updatedAt: result.updatedAt }),
         {
@@ -63,16 +74,19 @@ export const PUT: APIRoute = async ({ request, locals }) => {
         },
       );
     } else {
+      logger.debug('Creating new subscription:', { userEmail, deviceFingerprint, isSafari });
       const result = await db
         .insert(subscriptions)
         .values({
           userEmail,
           deviceFingerprint,
           subscription: JSON.stringify(subscription),
+          isSafari: isSafari ? 1 : 0,
         })
         .returning({ createdAt: subscriptions.createdAt })
         .get();
 
+      logger.info('Subscription created successfully:', { userEmail, deviceFingerprint, isSafari, createdAt: result.createdAt });
       return new Response(
         JSON.stringify({ message: 'Subscription created successfully', createdAt: result.createdAt }),
         {
@@ -82,7 +96,7 @@ export const PUT: APIRoute = async ({ request, locals }) => {
       );
     }
   } catch (error) {
-    console.error('Error updating subscription:', error);
+    logger.error('Error processing subscription:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -90,10 +104,11 @@ export const PUT: APIRoute = async ({ request, locals }) => {
   }
 };
 
-export const DELETE: APIRoute = async ({ request, locals }) => {
+export const DELETE: APIRoute = async (context) => {
   try {
-    const session = await getSession(request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
+      logger.warn('Unauthorized subscription deletion attempt');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -101,10 +116,11 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
     }
 
     const userEmail = session.user.email;
-    const body = (await request.json()) as { deviceFingerprint?: string };
+    const body = (await context.request.json()) as { deviceFingerprint?: string };
     const { deviceFingerprint } = body;
 
     if (!deviceFingerprint) {
+      logger.warn('Missing device fingerprint for deletion:', { userEmail });
       return new Response(JSON.stringify({ error: 'Missing device fingerprint' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -113,13 +129,15 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
 
     // Validate device fingerprint as a valid SHA256 hash
     if (!isValidSHA256(deviceFingerprint)) {
+      logger.warn('Invalid device fingerprint format for deletion:', { userEmail, deviceFingerprint });
       return new Response(JSON.stringify({ error: 'Invalid device fingerprint format' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    const db = getDb(locals.runtime.env.DB);
+    logger.debug('Processing subscription deletion:', { userEmail, deviceFingerprint });
+    const db = getDb(context.locals.runtime.env.DB);
 
     const result = await db
       .delete(subscriptions)
@@ -128,6 +146,7 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
       .get();
 
     if (result) {
+      logger.info('Subscription deleted successfully:', { userEmail, deviceFingerprint, deletedId: result.deletedId });
       return new Response(
         JSON.stringify({ message: 'Subscription deleted successfully', deletedId: result.deletedId }),
         {
@@ -136,13 +155,14 @@ export const DELETE: APIRoute = async ({ request, locals }) => {
         },
       );
     } else {
+      logger.warn('Subscription not found for deletion:', { userEmail, deviceFingerprint });
       return new Response(JSON.stringify({ error: 'Subscription not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
       });
     }
   } catch (error) {
-    console.error('Error deleting subscription:', error);
+    logger.error('Error deleting subscription:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

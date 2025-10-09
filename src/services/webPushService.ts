@@ -20,7 +20,11 @@ export class WebPushService {
     try {
       const payload = await buildPushPayload(pushMessage, subscription, this.vapid);
 
-      const response = await fetch(subscription.endpoint, payload);
+      const response = await fetch(subscription.endpoint, {
+        method: payload.method,
+        headers: payload.headers,
+        body: payload.body as BodyInit,
+      });
 
       if (!response.ok) {
         const error = new Error(`HTTP error! status: ${response.status}`);

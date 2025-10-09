@@ -19,7 +19,12 @@ export class PushTokenService {
         .where(eq(userCredentials.email, userEmail))
         .get();
 
-      return user?.pushToken ?? null;
+      // If user doesn't have a push token, generate a new one
+      if (!user?.pushToken) {
+        return this.resetPushToken(userEmail);
+      }
+
+      return user.pushToken;
     } catch (error) {
       console.error('Error getting push token:', error);
       return null;

@@ -55,8 +55,8 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
       body: content,
       subtitle: queryParams.get('subtitle') || undefined,
       url: queryParams.get('url') || undefined,
-      notification_group: queryParams.get('group') || undefined,
-      category: queryParams.get('group') || undefined, // Map group to category
+      group: queryParams.get('group') || undefined,
+      category: queryParams.get('category') || undefined,
       icon: queryParams.get('icon') || undefined,
       sound: queryParams.get('sound') || undefined,
       level: queryParams.get('level') as BarkParams['level'] || undefined,

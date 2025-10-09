@@ -1,264 +1,212 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import PullToRefresh from '@/components/ui/pull-to-refresh/PullToRefresh.vue';
 import type { Notification } from '@/types/notification';
-import { getCombinedFingerprint } from '@/utils/fingerprint';
-import { StreamErrorCode } from '@/pages/api/stream';
+
+import { useSSEConnection } from './composable/useSSEConnection';
+import { useNotificationsData } from './composable/useNotificationsData';
+import { useNotificationFilters, type Category, type Group } from './composable/useNotificationFilters';
 
 import Login from '../user/Login.vue';
 import NotificationCard from './NotificationCard.vue';
+import NotificationGroupSwitch from './NotificationGroupSwitch.vue';
 
 interface Props {
   session: {
     user?: {
       email: string;
-      name?: string;
+      name?: string | null;
     } | null;
   } | null;
   initialNotifications: Notification[];
   initialTotalPages: number;
+  initialGroups?: Group[];
+  initialCategories?: Category[];
+  categoriesByGroup?: Record<string, Category[]>;
+  enablePullToRefresh?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  initialGroups: () => [],
+  initialCategories: () => [],
+  categoriesByGroup: () => ({ all: [] }),
+  enablePullToRefresh: true,
+});
 
+// User information
 const user = ref(props.session?.user);
+const userEmail = ref<string | undefined>(user.value?.email || undefined);
 
-const notifications = ref<Notification[]>(props.initialNotifications);
-const totalPages = ref(props.initialTotalPages);
-const currentPage = ref(1);
-const initialLoading = ref(false);
-const isLoading = ref(false);
-const isLoadFailed = ref(false);
-const retryCount = ref(0);
-const maxRetries = 3;
+// Watch for user email changes
+watch(
+  () => user.value?.email,
+  (newEmail) => {
+    userEmail.value = newEmail || undefined;
+  },
+);
 
-let eventSource: EventSource | null = null;
+// Initialize notification filters
+const { currentGroup, currentCategory, processNewNotification, switchToNotificationContext, initializeKnownFilters } =
+  useNotificationFilters('all', 'all');
 
-// Define error response type
-interface ErrorResponse {
-  error: string;
-  code: StreamErrorCode;
-}
+// Initialize notifications data
+const {
+  notifications,
+  currentPage,
+  isLoading,
+  initialLoading,
+  isLoadFailed,
+  fetchNotifications,
+  loadMoreNotifications,
+  retryFetchNotifications,
+  handleNotificationDeleted,
+  handleNewNotification,
+  handleUpdateNotification,
+  fetchNotificationById,
+  highlightNotification,
+} = useNotificationsData(props.initialNotifications);
 
-// Define user fingerprints interface
-interface UserFingerprints {
-  [userEmail: string]: string;
-}
+// Handle filter changes from NotificationGroupSwitch
+const handleFilterChange = (group: string, category: string) => {
+  currentGroup.value = group;
+  currentCategory.value = category;
+  currentPage.value = 1; // Reset to first page
+  fetchNotifications(1, group, category);
+};
 
-const fetchNotifications = async (page: number) => {
-  if (isLoading.value || isLoadFailed.value) {
-    return;
-  }
-  isLoading.value = true;
+// Custom switch to notification context for the handleNewNotification function
+const customSwitchToNotificationContext = (notification: Notification) => {
+  switchToNotificationContext(notification, handleFilterChange);
 
-  try {
-    const response = await fetch(`/api/notifications?page=${page}&pageSize=10`);
-    const data: { notifications: Notification[]; totalPages: number } = await response.json();
-
-    if (page === 1) {
-      notifications.value = data.notifications || [];
-    } else {
-      notifications.value.push(...(data.notifications || []));
-    }
-
-    totalPages.value = data.totalPages || 0;
-    currentPage.value = page;
-    isLoadFailed.value = false;
-    retryCount.value = 0;
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    retryCount.value += 1;
-    if (retryCount.value >= maxRetries) {
-      isLoadFailed.value = true;
-    }
-  } finally {
-    isLoading.value = false;
-    initialLoading.value = false;
+  // Highlight the notification after data is loaded
+  if (notification.id) {
+    setTimeout(() => {
+      highlightNotification(notification.id, notification.group, notification.category);
+    }, 500);
   }
 };
 
-const loadMoreNotifications = () => {
-  if (currentPage.value < totalPages.value) {
-    fetchNotifications(currentPage.value + 1);
-  }
-};
-
+// Handle scroll for infinite loading
 const handleScroll = () => {
   if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
-    loadMoreNotifications();
+    loadMoreNotifications(currentGroup.value, currentCategory.value);
   }
 };
 
-const connectSSE = async () => {
-  if (!user.value?.email) {
-    console.debug('SSE connection not initiated: User not logged in');
-    return;
-  }
-
-  try {
-    // Get fingerprints from storage
-    const userFingerprints = localStorage.getItem('userFingerprints');
-    let fingerprints: UserFingerprints = {};
-
-    try {
-      fingerprints = userFingerprints ? JSON.parse(userFingerprints) : {};
-    } catch (error) {
-      console.error('Error parsing stored fingerprints:', error);
-    }
-
-    // Get fingerprint for current user or generate a new one
-    const deviceFingerprint =
-      (fingerprints && fingerprints[user.value.email]) || (await getCombinedFingerprint(user.value.email));
-
-    const sseUrl = `/api/stream?fingerprint=${encodeURIComponent(deviceFingerprint)}`;
-
-    console.debug('Attempting to connect SSE:', sseUrl);
-
-    eventSource = new EventSource(sseUrl);
-
-    eventSource.onopen = (event) => {
-      console.debug('SSE connection established', event);
-    };
-
-    eventSource.addEventListener('newNotification', (event) => {
-      console.debug('Received raw SSE message:', event);
-      try {
-        const newNotification = JSON.parse(event.data);
-        handleNewNotification(newNotification);
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
-      }
-    });
-
-    eventSource.addEventListener('error', (event) => {
-      console.error('SSE error:', event);
-
-      // Check if the error is due to an HTTP error response
-      if (event.target && (event.target as EventSource).readyState === EventSource.CLOSED) {
-        // Try to get the error details from the response
-        fetch(sseUrl, { method: 'GET' })
-          .then(async (response) => {
-            if (!response.ok) {
-              const errorData = (await response.json()) as ErrorResponse;
-
-              // Check if it's an invalid fingerprint error
-              if (errorData.code === StreamErrorCode.INVALID_FINGERPRINT) {
-                console.debug('Invalid fingerprint detected in SSE connection');
-
-                // Dispatch an event to handle the error at the application level
-                window.dispatchEvent(
-                  new CustomEvent('SSEConnectionError', {
-                    detail: {
-                      error: errorData.error,
-                      code: errorData.code,
-                    },
-                  }),
-                );
-
-                // Don't try to reconnect immediately, let the event handler handle it
-                return;
-              }
-            }
-
-            // For other errors, try to reconnect
-            eventSource?.close();
-            setTimeout(() => {
-              console.debug('Attempting to reconnect SSE...');
-              connectSSE();
-            }, 5000);
-          })
-          .catch((error) => {
-            console.error('Error checking SSE connection status:', error);
-            // For network errors, try to reconnect
-            eventSource?.close();
-            setTimeout(() => {
-              console.debug('Attempting to reconnect SSE after fetch error...');
-              connectSSE();
-            }, 5000);
-          });
-      } else {
-        // For other types of errors, try to reconnect
-        eventSource?.close();
-        setTimeout(() => {
-          console.debug('Attempting to reconnect SSE...');
-          connectSSE();
-        }, 5000);
-      }
-    });
-  } catch (error) {
-    console.error('Error setting up SSE:', error);
-  }
+// Process notifications from SSE
+const processNotificationFromSSE = (notification: Notification) => {
+  processNewNotification(notification);
 };
 
-const handleNotificationDeleted = (deletedId: string) => {
-  const index = notifications.value.findIndex((n) => n.id === deletedId);
-  if (index !== -1) {
-    notifications.value[index].isDeleting = true;
-    setTimeout(() => {
-      notifications.value = notifications.value.filter((n) => n.id !== deletedId);
-      handleScroll(); // Manually trigger scroll event to load more notifications
-    }, 500); // This should match the duration of your animation
-  }
+// Handle update notification from SSE
+const handleNotificationUpdateFromSSE = (notification: Notification) => {
+  handleUpdateNotification(notification, currentGroup, currentCategory);
 };
 
-const handleNewNotification = (newNotification: Notification) => {
-  newNotification.isNew = true;
-  notifications.value.unshift(newNotification);
+// Initialize SSE connection
+const { connect, disconnect } = useSSEConnection(userEmail, {
+  onNewNotification: (notification) => {
+    processNotificationFromSSE(notification);
+    handleNewNotification(notification, currentGroup, currentCategory, customSwitchToNotificationContext);
+  },
+  onUpdateNotification: handleNotificationUpdateFromSSE,
+  onDeleteNotification: handleNotificationDeleted,
+});
+
+// Handle reconnectSSE event
+const handleReconnectSSE = () => {
+  console.log('Reconnecting SSE...');
+  disconnect();
   setTimeout(() => {
-    const index = notifications.value.findIndex((n) => n.id === newNotification.id);
-    if (index !== -1) {
-      notifications.value[index].isNew = false;
-    }
-  }, 500); // This should match the duration of your animation
+    connect();
+  }, 1000);
 };
 
-const retryFetchNotifications = () => {
-  isLoadFailed.value = false;
-  retryCount.value = 0;
-  fetchNotifications(currentPage.value);
+// Fetch notification details by ID
+const handleNotificationIdFromRoute = (notificationId: string) => {
+  console.log(`Found notificationId in page data: ${notificationId}`);
+
+  fetchNotificationById(notificationId, (notification) => {
+    // If notification has a group, select it
+    if (notification.group && notification.group !== currentGroup.value) {
+      const groupName = notification.group;
+      currentGroup.value = groupName;
+      // When changing group, reset category to 'all'
+      currentCategory.value = 'all';
+      // Fetch notifications with the new filter
+      fetchNotifications(1, groupName, 'all');
+
+      // Highlight the notification
+      setTimeout(() => {
+        highlightNotification(notificationId, groupName, 'all');
+      }, 500);
+    } else {
+      // Just highlight the notification
+      highlightNotification(notificationId, currentGroup.value, currentCategory.value);
+    }
+  });
+};
+
+// Pull to refresh handler
+const handleRefresh = async () => {
+  try {
+    // Reset page to 1 and fetch fresh notifications
+    currentPage.value = 1;
+    await fetchNotifications(1, currentGroup.value, currentCategory.value);
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Failed to refresh notifications:', error);
+    return Promise.reject(error);
+  }
 };
 
 onMounted(() => {
-  if (user.value?.email) {
-    connectSSE();
+  if (userEmail.value) {
+    // Initialize known filters
+    initializeKnownFilters(props.initialCategories, props.initialGroups);
+
+    // Connect to SSE
+    connect();
+
+    // Fetch notifications if needed
     if (notifications.value.length === 0) {
-      fetchNotifications(1);
+      fetchNotifications(1, currentGroup.value, currentCategory.value);
     }
+
+    // Setup scroll listener for window
     window.addEventListener('scroll', handleScroll);
 
-    // Listen for reconnect event
-    document.addEventListener('reconnectSSE', () => {
-      console.debug('Reconnecting SSE after subscription update...');
-      if (eventSource) {
-        eventSource.close();
-      }
-      connectSSE();
-    });
+    // Setup reconnect listener for SSE
+    document.addEventListener('reconnectSSE', handleReconnectSSE as EventListener);
+
+    // Check for notificationId in body data attribute
+    const notificationId = document.body.getAttribute('data-notification-id');
+    if (notificationId) {
+      handleNotificationIdFromRoute(notificationId);
+    }
   } else {
-    console.debug('User not logged in, skipping SSE connection and initial fetch');
+    console.log('User not logged in, skipping SSE connection and initial fetch');
   }
 });
 
 onUnmounted(() => {
-  if (eventSource) {
-    eventSource.close();
-  }
+  disconnect();
   window.removeEventListener('scroll', handleScroll);
-  document.removeEventListener('reconnectSSE', () => {});
+  document.removeEventListener('reconnectSSE', handleReconnectSSE as EventListener);
 });
 
+// Watch for user changes
 watch(
   () => user.value,
   (newUser) => {
     if (newUser?.email) {
-      connectSSE();
-    } else if (eventSource) {
-      console.debug('User logged out, closing SSE connection');
-      eventSource.close();
-      eventSource = null;
+      connect();
+    } else {
+      console.log('User logged out, closing SSE connection');
+      disconnect();
     }
   },
 );
@@ -268,34 +216,48 @@ watch(
   <div class="flex flex-col items-center w-full">
     <div class="w-full pb-6 box-border">
       <template v-if="user">
-        <template v-if="!initialLoading">
-          <TransitionGroup
-            v-if="notifications.length > 0"
-            name="notification-list"
-            tag="div"
-            class="space-y-4"
-            id="notification-list"
-          >
-            <NotificationCard
-              v-for="notification in notifications"
-              :key="notification.id"
-              :notification="notification"
-              @deleted="handleNotificationDeleted"
+        <!-- Use the new PullToRefresh component -->
+        <PullToRefresh :onRefresh="handleRefresh" :enabled="props.enablePullToRefresh">
+          <!-- Content wrapper -->
+          <div class="content-wrapper">
+            <!-- Add the filter component -->
+            <NotificationGroupSwitch
+              :initialGroup="currentGroup"
+              :initialCategory="currentCategory"
+              :initialGroups="props.initialGroups"
+              :initialCategories="props.initialCategories"
+              :categoriesByGroup="props.categoriesByGroup"
+              @filterChange="handleFilterChange"
             />
-          </TransitionGroup>
-          <Card v-else>
-            <CardContent class="flex items-center justify-center p-6">
-              <p class="text-muted-foreground">There's no notification here...</p>
-            </CardContent>
-          </Card>
-        </template>
-        <div v-if="isLoading" class="flex justify-center mt-4">
-          <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
-        </div>
-        <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
-          <p class="text-red-500 text-xs">Failed to load notifications. Please try again.</p>
-          <Button class="mt-2" variant="outline" @click="retryFetchNotifications">Retry</Button>
-        </div>
+
+            <div class="notification-content">
+              <template v-if="!initialLoading">
+                <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
+                  <NotificationCard
+                    v-for="notification in notifications"
+                    :key="notification.id"
+                    :notification="notification"
+                    @deleted="handleNotificationDeleted"
+                  />
+                </div>
+                <Card v-else>
+                  <CardContent class="flex items-center justify-center p-6">
+                    <p class="text-muted-foreground">There's no notification here...</p>
+                  </CardContent>
+                </Card>
+              </template>
+              <div v-if="isLoading" class="flex justify-center mt-4 overflow-hidden">
+                <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
+              </div>
+              <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
+                <p class="text-red-500 text-xs">Failed to load notifications. Please try again.</p>
+                <Button class="mt-2" variant="outline" @click="retryFetchNotifications(currentGroup, currentCategory)"
+                  >Retry</Button
+                >
+              </div>
+            </div>
+          </div>
+        </PullToRefresh>
       </template>
       <Card v-else>
         <CardContent class="flex items-center justify-center">
@@ -306,23 +268,13 @@ watch(
   </div>
 </template>
 
-<style module>
-.notification-list-enter-active,
-.notification-list-leave-active {
-  transition: all 0.5s ease;
+<style>
+.content-wrapper {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
 }
 
-.notification-list-enter-from {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-.notification-list-leave-to {
-  opacity: 0;
-  transform: translateX(-100%);
-}
-
-.notification-list-move {
-  transition: transform 0.5s ease;
+.notification-content {
+  position: relative;
 }
 </style>

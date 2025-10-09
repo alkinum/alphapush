@@ -1,5 +1,6 @@
 import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
+import { NotificationService } from '@/services/notificationService';
 import type { PushResult } from '@/services/pushService';
 import { logger } from '@/utils/logger';
 
@@ -21,9 +22,11 @@ export interface BarkParams {
 
 export class BarkEndpointService {
   private pushService: PushService;
+  private notificationService: NotificationService;
 
   constructor(db: ReturnType<typeof getDb>, env: any) {
     this.pushService = new PushService(db, env);
+    this.notificationService = new NotificationService(db);
   }
 
   /**
@@ -63,8 +66,8 @@ export class BarkEndpointService {
         type: notificationData.type
       });
 
-      // Insert notification
-      const notification = await this.pushService.createNotification(notificationData);
+      // Insert notification directly using notificationService
+      const notification = await this.notificationService.createNotification(notificationData);
 
       if (!notification) {
         logger.error(`Failed to create notification from Bark push for user: ${user.email}`);

@@ -1,15 +1,16 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import type { ApprovalState } from '@/types/approval';
-import { sendSSEvent } from './stream';
 import { getDb } from '@/db';
+import { StreamService } from '@/services/streamService';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async (context) => {
   try {
-    const db = getDb(locals.runtime.env.DB);
+    const db = getDb(context.locals.runtime.env.DB);
     const approvalProcessService = new ApprovalProcessService(db);
-    const body = (await request.json()) as { approvalId: string; state: ApprovalState };
+    const streamService = new StreamService();
+    const body = (await context.request.json()) as { approvalId: string; state: ApprovalState };
     const { approvalId, state } = body;
 
     if (!approvalId || !state || (state !== 'approved' && state !== 'rejected')) {
@@ -25,10 +26,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     let approvalProcess;
 
     // Check for access_token in the header
-    const accessToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const accessToken = context.request.headers.get('Authorization')?.replace('Bearer ', '');
     if (accessToken) {
       // Get the stored token from Cloudflare KV
-      const storedToken = await locals.runtime.env.KV.get(`approval_token:${approvalId}`);
+      const storedToken = await context.locals.runtime.env.KV.get(`approval_token:${approvalId}`);
       if (storedToken && storedToken === accessToken) {
         isAuthorized = true;
         usedAccessToken = accessToken;
@@ -38,7 +39,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // If not authorized by access_token, check user session
     if (!isAuthorized) {
-      const session = await getSession(request);
+      const session = await getSessionFromContext(context);
       userEmail = session?.user?.email ?? undefined;
       if (!userEmail) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -114,17 +115,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // Send SSE event
     if (userEmail) {
-      sendSSEvent(userEmail, 'approvalStateChanged', {
-        notificationId: updatedApproval.notificationId,
-        approvalId: updatedApproval.id,
-        state: updatedApproval.state,
-      });
+      await streamService.sendApprovalStateChangedEvent(
+        userEmail,
+        updatedApproval.notificationId,
+        updatedApproval.id,
+        updatedApproval.state
+      );
     }
 
     // Revoke the access token if it was used
     if (usedAccessToken) {
       try {
-        await locals.runtime.env.KV.delete(`approval_token:${approvalId}`);
+        await context.locals.runtime.env.KV.delete(`approval_token:${approvalId}`);
       } catch (deleteError) {
         // Log the error but continue execution
         console.warn('Failed to delete access token, it will expire naturally:', deleteError);

@@ -1,11 +1,11 @@
 import type { APIRoute } from 'astro';
-import { getSession } from 'auth-astro/server';
+import { getSessionFromContext } from '@/lib/auth';
 import { UserPreferenceService, type UserPreference } from '@/services/userPreferenceService';
 
 export const GET: APIRoute = async (context) => {
   try {
     // Verify user identity
-    const session = await getSession(context.request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -41,7 +41,7 @@ export const GET: APIRoute = async (context) => {
 export const POST: APIRoute = async (context) => {
   try {
     // Verify user identity
-    const session = await getSession(context.request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -91,7 +91,7 @@ export const POST: APIRoute = async (context) => {
 export const PUT: APIRoute = async (context) => {
   try {
     // Verify user identity
-    const session = await getSession(context.request);
+    const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,

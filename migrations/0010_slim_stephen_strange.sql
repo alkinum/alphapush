@@ -1,0 +1,1 @@
+ALTER TABLE `subscriptions` ADD `is_safari` integer DEFAULT false;

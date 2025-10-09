@@ -1,0 +1,31 @@
+---
+import { getSession } from '@/lib/auth';
+
+import Page from '@/components/common/Page.astro';
+import NotificationSender from '@/components/notification/NotificationSender.vue';
+import { PushTokenService } from '@/services/pushTokenService';
+
+const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
+let pushToken = null;
+
+// If user is logged in, get their push token
+if (session?.user?.email) {
+  const userEmail = session.user.email;
+  const pushTokenService = new PushTokenService(Astro.locals.runtime.env.DB);
+  pushToken = await pushTokenService.getPushToken(userEmail);
+}
+
+// Prepare session object for component
+const sessionForComponent = session?.user?.email
+  ? {
+      user: {
+        email: session.user.email,
+        name: session.user.name ?? undefined,
+      },
+    }
+  : null;
+---
+
+<Page>
+  <NotificationSender client:load session={sessionForComponent} initialPushToken={pushToken} />
+</Page>

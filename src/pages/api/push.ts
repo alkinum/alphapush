@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
+import { NotificationService } from '@/services/notificationService';
+import type { Notification } from '@/types/notification';
 import { logger } from '@/utils/logger';
 
 /**
@@ -31,7 +33,6 @@ interface PushBody {
   icon_url?: string;
   type?: string;
   webhook_url?: string;
-  topic?: string;
   navigate_url?: string;
   extra?: Record<string, any>;
 }
@@ -48,7 +49,7 @@ interface BarkPushBody {
   badge?: number;
   sound?: string;
   icon?: string;
-  notification_group?: string;
+  group?: string;
   url?: string;
   copy?: string;
   autoCopy?: string;
@@ -124,7 +125,7 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
     title: barkBody.title,
     subtitle: barkBody.subtitle,
     category: barkBody.level, // Map level to category
-    group: barkBody.notification_group,
+    group: barkBody.group,
     icon_url: barkBody.icon,
     navigate_url: barkBody.url, // Map url to navigate_url
     extra: Object.keys(extra).length > 0 ? extra : undefined
@@ -172,6 +173,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     const db = getDb(locals.runtime.env.DB);
     const pushService = new PushService(db, locals.runtime.env);
+    const notificationService = new NotificationService(db);
 
     // Validate push token
     logger.debug('Validating push token');
@@ -199,7 +201,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       ...(body.icon_url && { icon_url: body.icon_url }),
       ...(body.type && { type: body.type }),
       ...(body.webhook_url && { webhook_url: body.webhook_url }),
-      ...(body.topic && { topic: body.topic }),
       ...(body.navigate_url && { navigate_url: body.navigate_url }),
       ...(body.extra && { extra: body.extra }),
     };
@@ -247,9 +248,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       notification_group: mergedParams.group,
       userEmail: user.email,
       iconUrl: mergedParams.icon_url,
+      navigate_url: mergedParams.navigate_url,
       type: mergedParams.type,
       extraInfo: extraInfo ? JSON.stringify(extraInfo) : null,
-      navigateUrl: mergedParams.navigate_url,
     };
 
     // Create notification
@@ -257,7 +258,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
       userEmail: user.email,
       type: notificationData.type
     });
-    const notification = await pushService.createNotification(notificationData);
+    // Create notification directly using notificationService instead of pushService
+    const notification = await notificationService.createNotification(notificationData);
 
     if (!notification) {
       logger.error('Push API error: Failed to create notification', {
@@ -285,8 +287,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
           notificationId: notification.id,
           webhookUrl: mergedParams.webhook_url
         });
+        const notificationForApproval: Notification = {
+          ...notification,
+          category: mergedParams.category || null,
+          group: mergedParams.group || null,
+          createdAt: notification.createdAt || new Date(),
+          updatedAt: notification.updatedAt || new Date(),
+        };
+
         const result = await pushService.createApprovalProcess(
-          notification,
+          notificationForApproval,
           mergedParams.webhook_url,
           user.email
         );
@@ -309,14 +319,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
       notificationId: notification.id,
       hasApprovalId: !!approvalId
     });
+    const notificationForPush: Notification = {
+      ...notification,
+      category: mergedParams.category || null,
+      group: mergedParams.group || null,
+      createdAt: notification.createdAt || new Date(),
+      updatedAt: notification.updatedAt || new Date(),
+    };
+
     const pushResult = await pushService.sendPushNotifications(
       user,
-      notification,
+      notificationForPush,
       {
         approvalId,
         tempAccessToken,
         approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
-        topic: mergedParams.topic || 'Default',
+        topic: mergedParams.category || 'Default',
       }
     );
 

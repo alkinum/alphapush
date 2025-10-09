@@ -1,5 +1,67 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { relations } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
+
+// Better Auth tables
+// Schema follows Better Auth's expected structure for compatibility
+export const user = sqliteTable('user', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name'), // nullable to match Better Auth
+  email: text('email').notNull().unique(),
+  emailVerified: integer('emailVerified', { mode: 'boolean' }).default(false),
+  image: text('image'),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  role: text('role').default('user'),
+});
+
+export const session = sqliteTable('session', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  token: text('token').notNull().unique(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  ipAddress: text('ipAddress'),
+  userAgent: text('userAgent'),
+  userId: text('userId')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+});
+
+export const account = sqliteTable('account', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  accountId: text('accountId').notNull(),
+  providerId: text('providerId').notNull(),
+  userId: text('userId')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  accessToken: text('accessToken'),
+  refreshToken: text('refreshToken'),
+  idToken: text('idToken'),
+  accessTokenExpiresAt: integer('accessTokenExpiresAt', { mode: 'timestamp' }),
+  refreshTokenExpiresAt: integer('refreshTokenExpiresAt', { mode: 'timestamp' }),
+  scope: text('scope'),
+  password: text('password'),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const verification = sqliteTable('verification', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: integer('expiresAt', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('createdAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updatedAt', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
 
 export const userCredentials = sqliteTable('user_credentials', {
   id: text('id')
@@ -13,6 +75,27 @@ export const userCredentials = sqliteTable('user_credentials', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
 
+export const groups = sqliteTable('groups', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  userEmail: text('user_email').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const categories = sqliteTable('categories', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  userEmail: text('user_email').notNull(),
+  groupId: text('group_id').references(() => groups.id).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
 export const pushNotifications = sqliteTable('push_notifications', {
   id: text('id')
     .primaryKey()
@@ -20,8 +103,8 @@ export const pushNotifications = sqliteTable('push_notifications', {
   content: text('content').notNull(),
   title: text('title'),
   subtitle: text('subtitle'),
-  category: text('category'),
-  notification_group: text('notification_group'),
+  categoryId: text('category_id').references(() => categories.id),
+  groupId: text('group_id').references(() => groups.id),
   userEmail: text('user_email').notNull(),
   type: text('type'),
   iconUrl: text('icon_url'),
@@ -38,6 +121,7 @@ export const subscriptions = sqliteTable('subscriptions', {
   userEmail: text('user_email').notNull(),
   deviceFingerprint: text('device_fingerprint').notNull(),
   subscription: text('subscription').notNull(),
+  isSafari: integer('is_safari', { mode: 'boolean' }).default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -61,7 +145,31 @@ export const userPreferences = sqliteTable('user_preferences', {
     .primaryKey()
     .$defaultFn(() => createId()),
   userEmail: text('user_email').notNull().unique(),
-  preferences: text('preferences').notNull(), // 存储为 JSON 字符串
+  preferences: text('preferences').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
+
+export const categoriesRelations = relations(categories, ({ many, one }) => ({
+  notifications: many(pushNotifications),
+  group: one(groups, {
+    fields: [categories.groupId],
+    references: [groups.id],
+  }),
+}));
+
+export const groupsRelations = relations(groups, ({ many }) => ({
+  notifications: many(pushNotifications),
+  categories: many(categories),
+}));
+
+export const pushNotificationsRelations = relations(pushNotifications, ({ one }) => ({
+  category: one(categories, {
+    fields: [pushNotifications.categoryId],
+    references: [categories.id],
+  }),
+  group: one(groups, {
+    fields: [pushNotifications.groupId],
+    references: [groups.id],
+  }),
+}));

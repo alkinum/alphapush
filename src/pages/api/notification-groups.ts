@@ -1,0 +1,79 @@
+import type { APIRoute } from 'astro';
+import { getSessionFromContext } from '@/lib/auth';
+import { getDb } from '@/db';
+import { NotificationService } from '@/services/notificationService';
+import { groups } from '@/schema';
+
+export const GET: APIRoute = async (context) => {
+  try {
+    const session = await getSessionFromContext(context);
+    if (!session?.user?.email) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userEmail = session.user.email;
+    const db = getDb(context.locals.runtime.env.DB);
+    const notificationService = new NotificationService(db);
+
+    const groups = await notificationService.getGroups(userEmail);
+
+    return new Response(JSON.stringify({ groups }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error fetching notification groups:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
+
+export const POST: APIRoute = async (context) => {
+  try {
+    const session = await getSessionFromContext(context);
+    if (!session?.user?.email) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const userEmail = session.user.email;
+    const body = await context.request.json() as { name: string };
+
+    if (!body.name) {
+      return new Response(JSON.stringify({ error: 'Missing required field: name' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const db = getDb(context.locals.runtime.env.DB);
+
+    // Create a new group
+    const newGroup = await db
+      .insert(groups)
+      .values({
+        userEmail,
+        name: body.name
+      })
+      .returning()
+      .get();
+
+    return new Response(JSON.stringify({ group: newGroup }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error creating notification group:', error);
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};

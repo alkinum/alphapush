@@ -1,53 +1,146 @@
 ---
-import { getSession } from 'auth-astro/server';
+import { getSession } from '@/lib/auth';
 
 import CookiePrivacyBanner from '@/components/common/CookiePrivacyBanner.vue';
 import Page from '@/components/common/Page.astro';
 import NotificationList from '@/components/notification/NotificationList.vue';
+import { getDb } from '@/db';
+import { NotificationService } from '@/services/notificationService';
+import type { Notification } from '@/types/notification';
 
-const session = await getSession(Astro.request);
-let initialNotifications = [];
+const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
+const db = getDb(Astro.locals.runtime.env.DB);
+const notificationService = new NotificationService(db);
+
+let initialNotifications: Notification[] = [];
 let totalPages = 0;
+let initialGroups: { id: string; name: string; count: number }[] = [{ id: 'all', name: 'All Groups', count: 0 }];
+let initialCategories: { id: string; name: string; count: number }[] = [{ id: 'all', name: 'All', count: 0 }];
+let categoriesByGroup: Record<string, { id: string; name: string; count: number }[]> = {
+  all: [{ id: 'all', name: 'All', count: 0 }],
+};
 
-const allowedEmails = import.meta.env.ALLOWED_EMAILS?.split(',').map((email: string) => email.trim()) || [];
-const isLogin = !!session?.user?.email;
-const isAllowedUser = isLogin && allowedEmails.includes(session?.user?.email);
+if (session?.user?.email) {
+  const userEmail = session.user.email;
 
-if (isLogin && !isAllowedUser) {
-  return Astro.redirect('/403');
-}
-
-if (isLogin) {
-  const apiUrl = new URL('/api/notifications', Astro.url);
-  apiUrl.searchParams.set('page', '1');
-  apiUrl.searchParams.set('pageSize', '10');
-
-  const response = await fetch(apiUrl, {
-    headers: {
-      Cookie: Astro.request.headers.get('Cookie') || '',
-    },
+  // Fetch initial notifications using NotificationService
+  const notificationsResult = await notificationService.getNotifications(userEmail, {
+    page: 1,
+    pageSize: 10,
   });
 
-  if (response.ok) {
-    const data = (await response.json()) as { notifications: any[]; totalPages: number; totalCount: number };
-    const highlightedNotificationId = Astro.url.searchParams.get('notificationId');
-    initialNotifications = data.notifications.map((notification) => ({
-      ...notification,
-      highlight: notification.id === highlightedNotificationId,
-    }));
-    totalPages = data.totalPages;
-  } else {
-    console.error('Error fetching initial notifications:', await response.text());
+  initialNotifications = notificationsResult.notifications;
+  totalPages = notificationsResult.totalPages;
+
+  // Get all groups for the user
+  const groups = await notificationService.getGroups(userEmail);
+  initialGroups = groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    count: typeof group.count === 'number' ? group.count : Number(group.count),
+  }));
+
+  // Get all categories for the user
+  const categories = await notificationService.getCategories(userEmail);
+  initialCategories = categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    count: typeof category.count === 'number' ? category.count : Number(category.count),
+  }));
+
+  // Create categoriesByGroup map
+  categoriesByGroup = { all: initialCategories };
+
+  // Get categories for each specific group
+  for (const group of groups) {
+    if (group.id !== 'all') {
+      const groupCategories = await notificationService.getCategoriesByGroup(userEmail, group.id);
+      categoriesByGroup[group.id] = groupCategories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        count: typeof category.count === 'number' ? category.count : Number(category.count),
+      }));
+    }
   }
 }
+
+// Prepare session object for component
+const sessionForComponent = session?.user?.email
+  ? {
+      user: {
+        email: session.user.email,
+        name: session.user.name ?? undefined,
+      },
+    }
+  : null;
+
+// Detect if the user is on a mobile device
+const userAgent = Astro.request.headers.get('user-agent') || '';
+const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 ---
 
 <Page>
   <NotificationList
     client:load
-    session={session?.user ? { user: { email: session.user.email ?? '', name: session.user.name ?? undefined } } : null}
+    session={sessionForComponent}
     initialNotifications={initialNotifications}
     initialTotalPages={totalPages}
+    initialGroups={initialGroups}
+    initialCategories={initialCategories}
+    categoriesByGroup={categoriesByGroup}
+    enablePullToRefresh={isMobile}
   />
   <CookiePrivacyBanner client:load />
 </Page>
+<script>
+  import { initializePushModule, registerServiceWorker } from '@/modules/pushSubscription';
+
+  // Initialize push module
+  initializePushModule();
+
+  // Register service worker
+  registerServiceWorker();
+</script>
+
+<style is:global>
+  html,
+  body {
+    overscroll-behavior-y: contain;
+    min-height: 100dvh;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* Mobile optimizations */
+  @media (max-width: 768px) {
+    html {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Prevent native pull-to-refresh on iOS */
+    body {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      overflow-y: scroll;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+
+  /*
+   * The PullToRefresh component styles are now contained within the component itself,
+   * but we still need some global styles to ensure compatibility across the app.
+   */
+
+  /* Fix for Safari flickering issue */
+  @supports (-webkit-touch-callout: none) {
+    .ptr-container,
+    .ptr-pull-container,
+    .ptr-indicator {
+      -webkit-transform-style: preserve-3d;
+      -webkit-backface-visibility: hidden;
+    }
+  }
+</style>
