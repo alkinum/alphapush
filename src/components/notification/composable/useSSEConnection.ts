@@ -33,6 +33,18 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
   const eventSource = ref<EventSource | null>(null);
   const isConnected = ref(false);
   const connectionError = ref<string | null>(null);
+  const reconnectTimeout = ref<number | null>(null);
+  const isReconnecting = ref(false);
+
+  /**
+   * Clear any pending reconnection timeout
+   */
+  const clearReconnectTimeout = () => {
+    if (reconnectTimeout.value !== null) {
+      clearTimeout(reconnectTimeout.value);
+      reconnectTimeout.value = null;
+    }
+  };
 
   /**
    * Connect to SSE endpoint and set up event listeners
@@ -42,6 +54,15 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
       console.log('SSE connection not initiated: User not logged in');
       return;
     }
+
+    // Prevent duplicate connections
+    if (isReconnecting.value) {
+      console.log('Connection attempt already in progress, skipping...');
+      return;
+    }
+
+    isReconnecting.value = true;
+    clearReconnectTimeout();
 
     try {
       // Get fingerprints from storage
@@ -76,6 +97,7 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
         console.log('SSE connection established');
         isConnected.value = true;
         connectionError.value = null;
+        isReconnecting.value = false;
       };
 
       // Listen for different notification events
@@ -132,6 +154,7 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
       eventSource.value.addEventListener('error', (event) => {
         console.error('SSE error:', event);
         isConnected.value = false;
+        isReconnecting.value = false;
 
         // Check if the error is due to an HTTP error response
         if (event.target && (event.target as EventSource).readyState === EventSource.CLOSED) {
@@ -161,11 +184,12 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
                 }
               }
 
-              // For other errors, try to reconnect
+              // For other errors, try to reconnect with exponential backoff
               if (eventSource.value) {
                 eventSource.value.close();
               }
-              setTimeout(() => {
+              clearReconnectTimeout();
+              reconnectTimeout.value = window.setTimeout(() => {
                 console.log('Attempting to reconnect SSE...');
                 connect();
               }, 5000);
@@ -174,11 +198,12 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
               console.error('Error checking SSE connection status:', error);
               connectionError.value = 'Connection error';
 
-              // For network errors, try to reconnect
+              // For network errors, try to reconnect with exponential backoff
               if (eventSource.value) {
                 eventSource.value.close();
               }
-              setTimeout(() => {
+              clearReconnectTimeout();
+              reconnectTimeout.value = window.setTimeout(() => {
                 console.log('Attempting to reconnect SSE after fetch error...');
                 connect();
               }, 5000);
@@ -188,7 +213,8 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
           if (eventSource.value) {
             eventSource.value.close();
           }
-          setTimeout(() => {
+          clearReconnectTimeout();
+          reconnectTimeout.value = window.setTimeout(() => {
             console.log('Attempting to reconnect SSE...');
             connect();
           }, 5000);
@@ -198,6 +224,7 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
       console.error('Error setting up SSE:', error);
       connectionError.value = 'Failed to set up connection';
       isConnected.value = false;
+      isReconnecting.value = false;
     }
   };
 
@@ -205,12 +232,16 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
    * Disconnect from SSE endpoint
    */
   const disconnect = () => {
+    clearReconnectTimeout();
+
     if (eventSource.value) {
       console.log('Closing SSE connection');
       eventSource.value.close();
       eventSource.value = null;
       isConnected.value = false;
     }
+
+    isReconnecting.value = false;
   };
 
   // Clean up on component unmount

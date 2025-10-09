@@ -116,6 +116,15 @@ const { connect, disconnect } = useSSEConnection(userEmail, {
   onDeleteNotification: handleNotificationDeleted,
 });
 
+// Handle reconnectSSE event
+const handleReconnectSSE = () => {
+  console.log('Reconnecting SSE...');
+  disconnect();
+  setTimeout(() => {
+    connect();
+  }, 1000);
+};
+
 // Fetch notification details by ID
 const handleNotificationIdFromRoute = (notificationId: string) => {
   console.log(`Found notificationId in page data: ${notificationId}`);
@@ -170,6 +179,9 @@ onMounted(() => {
     // Setup scroll listener for window
     window.addEventListener('scroll', handleScroll);
 
+    // Setup reconnect listener for SSE
+    document.addEventListener('reconnectSSE', handleReconnectSSE as EventListener);
+
     // Check for notificationId in body data attribute
     const notificationId = document.body.getAttribute('data-notification-id');
     if (notificationId) {
@@ -183,7 +195,7 @@ onMounted(() => {
 onUnmounted(() => {
   disconnect();
   window.removeEventListener('scroll', handleScroll);
-  document.removeEventListener('reconnectSSE', () => {});
+  document.removeEventListener('reconnectSSE', handleReconnectSSE as EventListener);
 });
 
 // Watch for user changes
