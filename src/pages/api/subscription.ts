@@ -58,7 +58,7 @@ export const PUT: APIRoute = async (context) => {
         .update(subscriptions)
         .set({
           subscription: JSON.stringify(subscription),
-          isSafari: isSafari ? 1 : 0,
+          isSafari: isSafari,
           updatedAt: new Date()
         })
         .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.deviceFingerprint, deviceFingerprint)))
@@ -81,7 +81,7 @@ export const PUT: APIRoute = async (context) => {
           userEmail,
           deviceFingerprint,
           subscription: JSON.stringify(subscription),
-          isSafari: isSafari ? 1 : 0,
+          isSafari: isSafari,
         })
         .returning({ createdAt: subscriptions.createdAt })
         .get();
