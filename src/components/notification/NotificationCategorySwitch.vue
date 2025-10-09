@@ -3,13 +3,21 @@
     <button
       v-for="category in categories"
       :key="category.id"
-      class="text-sm font-medium transition-colors focus:outline-none"
+      class="text-sm font-medium transition-colors focus:outline-none flex items-center gap-1.5"
       :class="currentCategory === category.id ? 'text-primary' : 'text-muted-foreground hover:text-primary'"
       @click="handleCategoryClick(category.id)"
     >
-      {{ category.name }}
-      <span v-if="category.count !== undefined && category.count > 0" class="ml-1 text-xs text-muted-foreground">
-        ({{ category.count }})
+      <span>{{ category.name }}</span>
+      <span
+        v-if="category.count !== undefined && category.count > 0"
+        class="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-semibold rounded-full transition-colors"
+        :class="
+          currentCategory === category.id
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-muted text-muted-foreground'
+        "
+      >
+        {{ category.count }}
       </span>
     </button>
   </div>

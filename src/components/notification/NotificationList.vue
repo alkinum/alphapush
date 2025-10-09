@@ -234,7 +234,7 @@ watch(
                   </CardContent>
                 </Card>
               </template>
-              <div v-if="isLoading" class="flex justify-center mt-4">
+              <div v-if="isLoading" class="flex justify-center mt-4 overflow-hidden">
                 <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
               </div>
               <div v-if="isLoadFailed" class="flex flex-col items-center mt-4">
