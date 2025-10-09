@@ -23,11 +23,29 @@ export const GET: APIRoute = async ({ request, locals }) => {
     const db = getDb(locals.runtime.env.DB);
     const notificationService = new NotificationService(db);
 
-    let categories;
+    let categoriesByGroup: Record<string, any[]> = {};
 
     if (groupParam === 'all') {
-      // Get all categories
-      categories = await notificationService.getCategories(userEmail);
+      // Get all categories grouped by their group
+      const allCategories = await notificationService.getCategories(userEmail);
+
+      // Group categories by their groupIds
+      categoriesByGroup['all'] = allCategories;
+
+      // Also organize by individual groups if needed
+      allCategories.forEach(category => {
+        if (category.groupIds && Array.isArray(category.groupIds)) {
+          category.groupIds.forEach((groupId: string) => {
+            if (!categoriesByGroup[groupId]) {
+              categoriesByGroup[groupId] = [];
+            }
+            // Only add if not already present
+            if (!categoriesByGroup[groupId].some((c: any) => c.id === category.id)) {
+              categoriesByGroup[groupId].push(category);
+            }
+          });
+        }
+      });
     } else {
       // Check if groupParam is a groupId (UUID format) or a group name
       // A simple check for UUID format - adjust based on your actual UUID format
@@ -35,7 +53,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
       if (isUuid) {
         // If it's a UUID, use it directly as a groupId
-        categories = await notificationService.getCategoriesByGroup(userEmail, groupParam);
+        const categories = await notificationService.getCategoriesByGroup(userEmail, groupParam);
+        categoriesByGroup[groupParam] = categories;
       } else {
         // If it's a name, find the group first
         const group = await db
@@ -45,15 +64,16 @@ export const GET: APIRoute = async ({ request, locals }) => {
           .get();
 
         if (group) {
-          categories = await notificationService.getCategoriesByGroup(userEmail, group.id);
+          const categories = await notificationService.getCategoriesByGroup(userEmail, group.id);
+          categoriesByGroup[group.id] = categories;
         } else {
           // Group not found by name, return empty list with just "All" category
-          categories = [{ id: 'all', name: 'All', count: 0 }];
+          categoriesByGroup[groupParam] = [{ id: 'all', name: 'All', count: 0 }];
         }
       }
     }
 
-    return new Response(JSON.stringify({ categories }), {
+    return new Response(JSON.stringify({ categoriesByGroup }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
