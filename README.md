@@ -39,7 +39,7 @@ AlphaPush is a general-purpose push notification service with a PWA client, base
 2. Install dependencies:
 
    ```
-   npm install
+   pnpm install
    ```
 
 3. Create an OAuth application in your GitHub account and get the client ID and client secret.
@@ -70,13 +70,13 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 3. Generate drizzle migrations:
 
    ```
-   npm run db:generate
+   pnpm run db:generate
    ```
 
 4. Apply migrations to your production database:
 
    ```
-   npm run db:migrate:prod
+   pnpm run db:migrate:prod
    ```
 
 5. Create a KV namespace:
@@ -104,7 +104,7 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 1. Start the development server:
 
    ```
-   npm run dev
+   pnpm run dev
    ```
 
 2. Open the link to the page from local dev server in your browser.
@@ -114,13 +114,13 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 1. Build the project:
 
    ```
-   npm run build
+   pnpm run build
    ```
 
 2. Deploy to Cloudflare Pages:
 
    ```
-   npm run deploy
+   pnpm run deploy:prod
    ```
 
 ### AI-Assisted Development

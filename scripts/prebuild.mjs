@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -11,7 +11,7 @@ readdirSync(packagesDir).forEach((packageName) => {
   if (statSync(packagePath).isDirectory()) {
     console.log(`Building ${packageName}...`);
     try {
-      execSync('npm run build', { cwd: packagePath, stdio: 'inherit' });
+      execFileSync('pnpm', ['run', 'build'], { cwd: packagePath, stdio: 'inherit' });
       console.log(`Successfully built ${packageName}`);
     } catch (error) {
       console.error(`Error building ${packageName}:`, error.message);

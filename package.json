@@ -2,10 +2,7 @@
   "name": "alphapush",
   "type": "module",
   "version": "0.5.0",
-  "packageManager": "npm@11.18.0",
-  "workspaces": [
-    "packages/*"
-  ],
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "astro dev",
     "build": "turbo run build && astro check && astro build",
@@ -16,8 +13,8 @@
     "db:migrate:local": "wrangler d1 migrations apply alphapush-prod --local",
     "db:migrate:prod": "wrangler d1 migrations apply alphapush-prod --remote",
     "db:migrate:dev": "wrangler d1 migrations apply --env dev alphapush-dev --remote",
-    "deploy:dev": "npm run build && wrangler pages deploy dist --branch dev",
-    "deploy:prod": "npm run build && wrangler pages deploy dist --branch main",
+    "deploy:dev": "pnpm run build && wrangler pages deploy dist --branch dev",
+    "deploy:prod": "pnpm run build && wrangler pages deploy dist --branch main",
     "prebuild": "node scripts/prebuild.mjs",
     "generate:worker-types": "wrangler types"
   },
@@ -30,7 +27,7 @@
     "BackRunner"
   ],
   "dependencies": {
-    "@alkinum/alphapush-encryption": "file:./packages/encryption",
+    "@alkinum/alphapush-encryption": "workspace:*",
     "@astrojs/check": "^0.9.9",
     "@astrojs/cloudflare": "^14.1.0",
     "@astrojs/vue": "^7.0.1",
