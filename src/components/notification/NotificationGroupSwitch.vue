@@ -5,7 +5,7 @@ import DropdownMenuTrigger from '@/components/ui/dropdown-menu/DropdownMenuTrigg
 import DropdownMenuContent from '@/components/ui/dropdown-menu/DropdownMenuContent.vue';
 import DropdownMenuItem from '@/components/ui/dropdown-menu/DropdownMenuItem.vue';
 import { Button } from '@/components/ui/button';
-import { ChevronDown } from 'lucide-vue-next';
+import { ChevronDown } from '@lucide/vue';
 import NotificationCategorySwitch from './NotificationCategorySwitch.vue';
 
 interface Category {

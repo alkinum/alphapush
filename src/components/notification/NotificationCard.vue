@@ -427,6 +427,8 @@ const handleCancelDelete = () => {
 </template>
 
 <style>
+@reference "../../styles/globals.css";
+
 .markdown-content {
   font-family:
     system-ui,
@@ -446,75 +448,75 @@ const handleCancelDelete = () => {
   font-size: 0.875rem;
 }
 
-.markdown-content :deep(h1),
-.markdown-content :deep(h2),
-.markdown-content :deep(h3),
-.markdown-content :deep(h4),
-.markdown-content :deep(h5),
-.markdown-content :deep(h6) {
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
   font-weight: 600;
 }
 
-.markdown-content :deep(h1) {
+.markdown-content h1 {
   font-size: 1.5rem;
 }
-.markdown-content :deep(h2) {
+.markdown-content h2 {
   font-size: 1.25rem;
 }
-.markdown-content :deep(h3) {
+.markdown-content h3 {
   font-size: 1.125rem;
 }
-.markdown-content :deep(h4) {
+.markdown-content h4 {
   font-size: 1rem;
 }
-.markdown-content :deep(h5) {
+.markdown-content h5 {
   font-size: 0.875rem;
 }
-.markdown-content :deep(h6) {
+.markdown-content h6 {
   font-size: 0.75rem;
 }
 
-.markdown-content :deep(p) {
+.markdown-content p {
   margin-bottom: 24px;
 }
 
-.markdown-content :deep(p:only-child) {
+.markdown-content p:only-child {
   margin-bottom: 0;
 }
 
-.markdown-content :deep(p:last-child) {
+.markdown-content p:last-child {
   margin-bottom: 0;
 }
 
-.markdown-content :deep(a) {
+.markdown-content a {
   color: hsl(var(--primary));
   text-decoration: none;
 }
 
-.markdown-content :deep(a:hover) {
+.markdown-content a:hover {
   text-decoration: underline;
 }
 
-.markdown-content :deep(ul),
-.markdown-content :deep(ol) {
+.markdown-content ul,
+.markdown-content ol {
   margin-bottom: 1em;
   padding-left: 2em;
 }
 
-.markdown-content :deep(li) {
+.markdown-content li {
   margin-bottom: 0.5em;
 }
 
-.markdown-content :deep(blockquote) {
+.markdown-content blockquote {
   border-left: 4px solid hsl(var(--border));
   padding-left: 1em;
   color: hsl(var(--muted-foreground));
   margin-bottom: 1em;
 }
 
-.markdown-content :deep(.code-block) {
+.markdown-content .code-block {
   margin-bottom: 1em;
   border-radius: 6px;
   overflow: hidden;
@@ -604,11 +606,11 @@ const handleCancelDelete = () => {
   }
 }
 
-.notification-card :deep(.border-t) {
+.notification-card .border-t {
   border-top: 1px solid hsl(var(--border));
 }
 
-.markdown-content :deep(.skeleton) {
+.markdown-content .skeleton {
   @apply bg-muted;
 }
 </style>

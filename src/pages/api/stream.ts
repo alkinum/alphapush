@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
@@ -169,7 +170,7 @@ export const GET: APIRoute = async (context) => {
   }
 
   const userEmail = session.user.email;
-  const db = getDb(context.locals.runtime.env.DB);
+  const db = getDb(env.DB);
 
   const url = new URL(context.request.url);
   const deviceFingerprint = url.searchParams.get('fingerprint');

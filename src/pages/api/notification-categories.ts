@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
@@ -20,7 +21,7 @@ export const GET: APIRoute = async (context) => {
     const url = new URL(context.request.url);
     const groupParam = url.searchParams.get('group') || 'all';
 
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
 
     let categoriesByGroup: Record<string, any[]> = {};
@@ -106,7 +107,7 @@ export const POST: APIRoute = async (context) => {
       });
     }
 
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     // Create a new category under the specified group
     // First we need to get the group to make sure it exists

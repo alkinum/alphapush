@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { PushTokenService } from '@/services/pushTokenService';
@@ -13,7 +14,7 @@ export const GET: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const pushTokenService = new PushTokenService(context.locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(env.DB);
 
     const pushToken = await pushTokenService.getPushToken(userEmail);
 
@@ -48,7 +49,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const pushTokenService = new PushTokenService(context.locals.runtime.env.DB);
+    const pushTokenService = new PushTokenService(env.DB);
 
     const body = await context.request.json();
     const { action } = body as { action?: string };

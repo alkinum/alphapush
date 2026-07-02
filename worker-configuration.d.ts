@@ -6,3 +6,11 @@ interface Env {
   KV: KVNamespace;
   APP_URL?: string;
 }
+
+declare namespace Cloudflare {
+  interface Env {
+    DB: D1Database;
+    KV: KVNamespace;
+    APP_URL?: string;
+  }
+}

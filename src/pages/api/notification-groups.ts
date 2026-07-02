@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { getDb } from '@/db';
@@ -15,7 +16,7 @@ export const GET: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
 
     const groups = await notificationService.getGroups(userEmail);
@@ -53,7 +54,7 @@ export const POST: APIRoute = async (context) => {
       });
     }
 
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     // Create a new group
     const newGroup = await db

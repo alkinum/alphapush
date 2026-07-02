@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { UserPreferenceService, type UserPreference } from '@/services/userPreferenceService';
@@ -16,7 +17,7 @@ export const GET: APIRoute = async (context) => {
     }
 
     // Create service instance
-    const userPreferenceService = new UserPreferenceService(context.locals.runtime.env.DB);
+    const userPreferenceService = new UserPreferenceService(env.DB);
 
     // Get user preferences
     const preferences = await userPreferenceService.getUserPreferences(session.user.email);
@@ -52,7 +53,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Create service instance
-    const userPreferenceService = new UserPreferenceService(context.locals.runtime.env.DB);
+    const userPreferenceService = new UserPreferenceService(env.DB);
 
     // Parse request body
     const body = await context.request.json();
@@ -102,7 +103,7 @@ export const PUT: APIRoute = async (context) => {
     }
 
     // Create service instance
-    const userPreferenceService = new UserPreferenceService(context.locals.runtime.env.DB);
+    const userPreferenceService = new UserPreferenceService(env.DB);
 
     // Parse request body
     const body = await context.request.json();

@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getDb } from '@/db';
 import { BarkEndpointService, type BarkParams } from '@/services/barkEndpointService';
@@ -19,7 +20,7 @@ import { logger } from '@/utils/logger';
  * - copy: Text to copy when notification is tapped
  * - isArchive: Whether to archive the notification
  */
-export const GET: APIRoute = async ({ params, request, locals }) => {
+export const GET: APIRoute = async ({ params, request }) => {
   logger.debug(`Request received to /[pushToken]/[title]/[subtitle]/[body] endpoint: ${request.url}`);
 
   try {
@@ -85,8 +86,8 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
 
     // Process the push notification
     logger.debug(`Processing push for token: ${pushToken}`);
-    const db = getDb(locals.runtime.env.DB);
-    const barkService = new BarkEndpointService(db, locals.runtime.env);
+    const db = getDb(env.DB);
+    const barkService = new BarkEndpointService(db, env);
     const result = await barkService.processBarkPush(pushToken, barkParams);
 
     logger.debug(`Push processing result:`, result);

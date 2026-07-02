@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "rootDir": "src",
     "target": "ESNext",
     "module": "ESNext",
     "lib": ["ESNext", "dom"],

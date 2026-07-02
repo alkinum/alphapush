@@ -46,8 +46,10 @@ export function createAuth(db: D1Database) {
       modelName: 'user',
     },
     advanced: {
-      generateId: () => {
-        return createId();
+      database: {
+        generateId: () => {
+          return createId();
+        },
       },
     },
     callbacks: {

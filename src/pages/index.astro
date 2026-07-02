@@ -1,4 +1,5 @@
 ---
+import { env } from 'cloudflare:workers';
 import { getSession } from '@/lib/auth';
 
 import CookiePrivacyBanner from '@/components/common/CookiePrivacyBanner.vue';
@@ -8,8 +9,8 @@ import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
 import type { Notification } from '@/types/notification';
 
-const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
-const db = getDb(Astro.locals.runtime.env.DB);
+const session = await getSession(Astro.request, env.DB);
+const db = getDb(env.DB);
 const notificationService = new NotificationService(db);
 
 let initialNotifications: Notification[] = [];

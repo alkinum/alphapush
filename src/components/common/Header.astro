@@ -1,4 +1,5 @@
 ---
+import { env } from 'cloudflare:workers';
 import { getSession } from '@/lib/auth';
 
 import { PushTokenService } from '@/services/pushTokenService';
@@ -6,11 +7,11 @@ import { PushTokenService } from '@/services/pushTokenService';
 import TopUser from '../user/TopUser.vue';
 import TopUserServer from '../user/TopUserServer.astro';
 
-const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
+const session = await getSession(Astro.request, env.DB);
 let pushToken = null;
 
 if (session?.user?.email) {
-  const pushTokenService = new PushTokenService(Astro.locals.runtime.env.DB);
+  const pushTokenService = new PushTokenService(env.DB);
   pushToken = await pushTokenService.getPushToken(session.user.email);
 }
 

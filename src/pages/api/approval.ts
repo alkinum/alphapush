@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
@@ -7,7 +8,7 @@ import { StreamService } from '@/services/streamService';
 
 export const POST: APIRoute = async (context) => {
   try {
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
     const approvalProcessService = new ApprovalProcessService(db);
     const streamService = new StreamService();
     const body = (await context.request.json()) as { approvalId: string; state: ApprovalState };
@@ -29,7 +30,7 @@ export const POST: APIRoute = async (context) => {
     const accessToken = context.request.headers.get('Authorization')?.replace('Bearer ', '');
     if (accessToken) {
       // Get the stored token from Cloudflare KV
-      const storedToken = await context.locals.runtime.env.KV.get(`approval_token:${approvalId}`);
+      const storedToken = await env.KV.get(`approval_token:${approvalId}`);
       if (storedToken && storedToken === accessToken) {
         isAuthorized = true;
         usedAccessToken = accessToken;
@@ -126,7 +127,7 @@ export const POST: APIRoute = async (context) => {
     // Revoke the access token if it was used
     if (usedAccessToken) {
       try {
-        await context.locals.runtime.env.KV.delete(`approval_token:${approvalId}`);
+        await env.KV.delete(`approval_token:${approvalId}`);
       } catch (deleteError) {
         // Log the error but continue execution
         console.warn('Failed to delete access token, it will expire naturally:', deleteError);

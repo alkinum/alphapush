@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { getDb } from '@/db';
@@ -21,7 +22,7 @@ export const GET: APIRoute = async (context) => {
     const group = url.searchParams.get('group') || undefined;
     const category = url.searchParams.get('category') || undefined;
 
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
 
     const result = await notificationService.getNotifications(userEmail, {
@@ -65,7 +66,7 @@ export const DELETE: APIRoute = async (context) => {
       });
     }
 
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
 
     const deletedNotification = await notificationService.deleteNotification(notificationId, userEmail);

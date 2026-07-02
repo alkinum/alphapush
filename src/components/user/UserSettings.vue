@@ -556,6 +556,8 @@ defineExpose({ openSettings });
 </template>
 
 <style scoped>
+@reference "../../styles/globals.css";
+
 .scrollable-content {
   @apply overflow-y-auto pr-6 -mr-6;
   scrollbar-width: thin;

@@ -1,17 +1,18 @@
 ---
+import { env } from 'cloudflare:workers';
 import { getSession } from '@/lib/auth';
 
 import Page from '@/components/common/Page.astro';
 import NotificationSender from '@/components/notification/NotificationSender.vue';
 import { PushTokenService } from '@/services/pushTokenService';
 
-const session = await getSession(Astro.request, Astro.locals.runtime.env.DB);
+const session = await getSession(Astro.request, env.DB);
 let pushToken = null;
 
 // If user is logged in, get their push token
 if (session?.user?.email) {
   const userEmail = session.user.email;
-  const pushTokenService = new PushTokenService(Astro.locals.runtime.env.DB);
+  const pushTokenService = new PushTokenService(env.DB);
   pushToken = await pushTokenService.getPushToken(userEmail);
 }
 

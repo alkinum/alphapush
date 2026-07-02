@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, shallowRef } from 'vue'
 import type { Component, VNode } from 'vue'
 import type { ToastProps } from '.'
 
@@ -72,7 +72,7 @@ function addToRemoveQueue(toastId: string) {
   toastTimeouts.set(toastId, timeout)
 }
 
-const state = ref<State>({
+const state = shallowRef<State>({
   toasts: [],
 })
 

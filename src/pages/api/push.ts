@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
@@ -144,7 +145,7 @@ function isBarkFormat(body: any): body is BarkPushBody {
     typeof body.body === 'string';
 }
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   logger.debug('Push API request received');
 
   try {
@@ -171,8 +172,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
       });
     }
 
-    const db = getDb(locals.runtime.env.DB);
-    const pushService = new PushService(db, locals.runtime.env);
+    const db = getDb(env.DB);
+    const pushService = new PushService(db, env);
     const notificationService = new NotificationService(db);
 
     // Validate push token

@@ -1,17 +1,44 @@
-// @ts-ignore
-import { LRUCache } from 'lru-cache';
-
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const NONCE_LENGTH = 12;
 const TAG_LENGTH = 128;
+const KEY_CACHE_MAX_SIZE = 100;
+const KEY_CACHE_TTL_MS = 1000 * 60 * 60;
 
-// Create an LRU cache for derived keys
-// The type of LRUCache is not stable
-const keyCache = new LRUCache<string, CryptoKey>({
-  max: 100,
-  ttl: 1000 * 60 * 60,
-});
+const keyCache = new Map<string, { expiresAt: number; value: CryptoKey }>();
+
+function getCachedKey(cacheKey: string): CryptoKey | undefined {
+  const cached = keyCache.get(cacheKey);
+
+  if (!cached) {
+    return undefined;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    keyCache.delete(cacheKey);
+    return undefined;
+  }
+
+  keyCache.delete(cacheKey);
+  keyCache.set(cacheKey, cached);
+  return cached.value;
+}
+
+function setCachedKey(cacheKey: string, value: CryptoKey): void {
+  if (keyCache.has(cacheKey)) {
+    keyCache.delete(cacheKey);
+  } else if (keyCache.size >= KEY_CACHE_MAX_SIZE) {
+    const oldestKey = keyCache.keys().next().value;
+    if (oldestKey) {
+      keyCache.delete(oldestKey);
+    }
+  }
+
+  keyCache.set(cacheKey, {
+    expiresAt: Date.now() + KEY_CACHE_TTL_MS,
+    value,
+  });
+}
 
 // Add these utility functions for base64 encoding/decoding
 function base64ToUint8Array(base64: string): Uint8Array {
@@ -78,7 +105,7 @@ export async function decrypt(encryptedContent: string, masterKey: string, nonce
 async function deriveKey(masterKey: string, salt: Uint8Array): Promise<CryptoKey> {
   // Replace Buffer usage with the new utility function
   const cacheKey = `${masterKey}:${uint8ArrayToBase64(salt)}`;
-  const cachedKey = keyCache.get(cacheKey);
+  const cachedKey = getCachedKey(cacheKey);
 
   if (cachedKey) {
     return cachedKey;
@@ -102,6 +129,6 @@ async function deriveKey(masterKey: string, salt: Uint8Array): Promise<CryptoKey
     ['encrypt', 'decrypt'] as KeyUsage[],
   );
 
-  keyCache.set(cacheKey, derivedKey);
+  setCachedKey(cacheKey, derivedKey);
   return derivedKey;
 }

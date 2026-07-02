@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
@@ -17,7 +18,7 @@ export const GET: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     let userCreds = await db.select().from(userCredentials).where(eq(userCredentials.email, userEmail)).get();
 
@@ -60,7 +61,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     const body = await context.request.json();
     const { action } = body as { action?: string };

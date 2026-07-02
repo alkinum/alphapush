@@ -1,10 +1,21 @@
+import { env } from 'cloudflare:workers';
 import type { APIContext } from 'astro';
 import { createAuth } from './config';
+
+export type UserRole = 'admin' | 'user';
+
+type BetterAuthSession = Awaited<ReturnType<ReturnType<typeof createAuth>['api']['getSession']>>;
+type SessionWithRole = NonNullable<BetterAuthSession> & {
+  user: NonNullable<BetterAuthSession>['user'] & {
+    role?: UserRole;
+  };
+};
+export type AuthSession = SessionWithRole | null;
 
 /**
  * Get the current session from Better Auth
  */
-export async function getSession(request: Request, db: D1Database) {
+export async function getSession(request: Request, db: D1Database): Promise<AuthSession> {
   const auth = createAuth(db);
 
   try {
@@ -12,7 +23,7 @@ export async function getSession(request: Request, db: D1Database) {
       headers: request.headers,
     });
 
-    return session;
+    return session as SessionWithRole | null;
   } catch (error) {
     console.error('Error getting session:', error);
     return null;
@@ -23,7 +34,7 @@ export async function getSession(request: Request, db: D1Database) {
  * Get session for Astro API routes
  */
 export async function getSessionFromContext(context: APIContext) {
-  return getSession(context.request, context.locals.runtime.env.DB);
+  return getSession(context.request, env.DB);
 }
 
 /**
@@ -45,7 +56,7 @@ export async function requireAuth(context: APIContext) {
 /**
  * Check if user is admin
  */
-export function isAdmin(session: { user: { email: string; role?: string } } | null): boolean {
+export function isAdmin(session: { user: { email: string; role?: UserRole } } | null): boolean {
   if (!session?.user) return false;
 
   const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',') || [];

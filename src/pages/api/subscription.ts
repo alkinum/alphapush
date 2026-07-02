@@ -1,3 +1,4 @@
+import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
@@ -44,7 +45,7 @@ export const PUT: APIRoute = async (context) => {
     }
 
     logger.debug('Processing subscription update:', { userEmail, deviceFingerprint, isSafari });
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     const existingSubscription = await db
       .select()
@@ -137,7 +138,7 @@ export const DELETE: APIRoute = async (context) => {
     }
 
     logger.debug('Processing subscription deletion:', { userEmail, deviceFingerprint });
-    const db = getDb(context.locals.runtime.env.DB);
+    const db = getDb(env.DB);
 
     const result = await db
       .delete(subscriptions)
