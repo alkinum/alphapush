@@ -7,16 +7,24 @@ export const authClient = createAuthClient({
 /**
  * Sign in with OAuth provider
  */
-export async function signIn(provider: 'github') {
+export async function signIn(provider: 'github', callbackURL = getCurrentCallbackURL()) {
   try {
     await authClient.signIn.social({
       provider,
-      callbackURL: '/',
+      callbackURL,
     });
   } catch (error) {
     console.error('Sign in error:', error);
     throw error;
   }
+}
+
+function getCurrentCallbackURL(): string {
+  if (typeof window === 'undefined') {
+    return '/';
+  }
+
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
 /**

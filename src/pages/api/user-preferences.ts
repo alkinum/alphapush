@@ -1,19 +1,123 @@
 import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
-import { UserPreferenceService, type UserPreference } from '@/services/userPreferenceService';
+import { defaultPreferences, UserPreferenceService, type UserPreference } from '@/services/userPreferenceService';
+import { isLocalNetworkUrl } from '@/utils/network';
+
+type PreferencePatch = Partial<UserPreference>;
+
+const preferenceKeys = new Set<keyof UserPreference>([
+  'showNotificationIcons',
+  'barkFallbackEnabled',
+  'barkFallbackAlways',
+  'barkServerUrl',
+  'barkDeviceKey',
+]);
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+function normalizeBarkServerUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Bark server URL must be a string');
+  }
+
+  const serverUrl = value.trim() || defaultPreferences.barkServerUrl;
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(serverUrl);
+  } catch {
+    throw new Error('Invalid Bark server URL');
+  }
+
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    throw new Error('Bark server URL must use http or https');
+  }
+
+  if (isLocalNetworkUrl(parsedUrl.toString())) {
+    throw new Error('Local network Bark server URLs are not allowed');
+  }
+
+  parsedUrl.hash = '';
+  parsedUrl.search = '';
+  return parsedUrl.toString().replace(/\/+$/, '');
+}
+
+function normalizePreferencePatch(rawPreferences: unknown): PreferencePatch {
+  if (!rawPreferences || typeof rawPreferences !== 'object' || Array.isArray(rawPreferences)) {
+    throw new Error('Missing preferences');
+  }
+
+  const preferences = rawPreferences as Record<string, unknown>;
+  const normalized: PreferencePatch = {};
+
+  for (const [key, value] of Object.entries(preferences)) {
+    if (!preferenceKeys.has(key as keyof UserPreference)) {
+      throw new Error(`Unsupported preference key: ${key}`);
+    }
+
+    switch (key as keyof UserPreference) {
+      case 'showNotificationIcons':
+        if (typeof value !== 'boolean') {
+          throw new Error(`${key} must be a boolean`);
+        }
+        normalized.showNotificationIcons = value;
+        break;
+      case 'barkFallbackEnabled':
+        if (typeof value !== 'boolean') {
+          throw new Error(`${key} must be a boolean`);
+        }
+        normalized.barkFallbackEnabled = value;
+        break;
+      case 'barkFallbackAlways':
+        if (typeof value !== 'boolean') {
+          throw new Error(`${key} must be a boolean`);
+        }
+        normalized.barkFallbackAlways = value;
+        break;
+      case 'barkServerUrl':
+        normalized.barkServerUrl = normalizeBarkServerUrl(value);
+        break;
+      case 'barkDeviceKey': {
+        if (typeof value !== 'string') {
+          throw new Error('Bark device key must be a string');
+        }
+
+        const deviceKey = value.trim();
+        if (deviceKey.length > 256) {
+          throw new Error('Bark device key is too long');
+        }
+
+        normalized.barkDeviceKey = deviceKey;
+        break;
+      }
+    }
+  }
+
+  const wantsBarkEnabled =
+    normalized.barkFallbackEnabled === true ||
+    ((rawPreferences as Partial<UserPreference>).barkFallbackEnabled === true);
+  const deviceKey = normalized.barkDeviceKey;
+  if (wantsBarkEnabled && deviceKey !== undefined && deviceKey.length === 0) {
+    throw new Error('Bark device key is required when fallback is enabled');
+  }
+
+  return normalized;
+}
 
 export const GET: APIRoute = async (context) => {
   try {
     // Verify user identity
     const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
     // Create service instance
@@ -22,20 +126,10 @@ export const GET: APIRoute = async (context) => {
     // Get user preferences
     const preferences = await userPreferenceService.getUserPreferences(session.user.email);
 
-    return new Response(JSON.stringify({ preferences }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return jsonResponse({ preferences });
   } catch (error) {
     console.error('Error getting user preferences:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return jsonResponse({ error: 'Internal server error' }, 500);
   }
 };
 
@@ -44,12 +138,7 @@ export const POST: APIRoute = async (context) => {
     // Verify user identity
     const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
     // Create service instance
@@ -57,34 +146,18 @@ export const POST: APIRoute = async (context) => {
 
     // Parse request body
     const body = await context.request.json();
-    const { preferences } = body as { preferences: Partial<UserPreference> };
-
-    if (!preferences) {
-      return new Response(JSON.stringify({ error: 'Missing preferences' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-    }
+    const { preferences } = body as { preferences?: Partial<UserPreference> };
+    const normalizedPreferences = normalizePreferencePatch(preferences);
 
     // Update user preferences
-    const updatedPreferences = await userPreferenceService.updateUserPreferences(session.user.email, preferences);
+    const updatedPreferences = await userPreferenceService.updateUserPreferences(session.user.email, normalizedPreferences);
 
-    return new Response(JSON.stringify({ preferences: updatedPreferences }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return jsonResponse({ preferences: updatedPreferences });
   } catch (error) {
     console.error('Error updating user preferences:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const status = message === 'Internal server error' ? 500 : 400;
+    return jsonResponse({ error: message }, status);
   }
 };
 
@@ -94,12 +167,7 @@ export const PUT: APIRoute = async (context) => {
     // Verify user identity
     const session = await getSessionFromContext(context);
     if (!session?.user?.email) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
     // Create service instance
@@ -109,31 +177,20 @@ export const PUT: APIRoute = async (context) => {
     const body = await context.request.json();
     const { key, value } = body as { key: keyof UserPreference; value: any };
 
-    if (!key) {
-      return new Response(JSON.stringify({ error: 'Missing preference key' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+    if (!key || !preferenceKeys.has(key)) {
+      return jsonResponse({ error: 'Missing or unsupported preference key' }, 400);
     }
 
     // Sync single preference
-    const updatedPreferences = await userPreferenceService.syncPreference(session.user.email, key, value);
+    const normalizedPreferences = normalizePreferencePatch({ [key]: value });
+    const normalizedValue = normalizedPreferences[key] as UserPreference[typeof key];
+    const updatedPreferences = await userPreferenceService.syncPreference(session.user.email, key, normalizedValue);
 
-    return new Response(JSON.stringify({ preferences: updatedPreferences }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return jsonResponse({ preferences: updatedPreferences });
   } catch (error) {
     console.error('Error syncing user preference:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const status = message === 'Internal server error' ? 500 : 400;
+    return jsonResponse({ error: message }, status);
   }
-}; 
+};

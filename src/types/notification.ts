@@ -16,6 +16,12 @@ export interface Notification {
   groupId?: string | null; // 组 ID
   approvalId?: string; // 审批流程 ID
   approvalState?: string; // 审批状态
+  webPushSentAt?: Date | null;
+  webPushDisplayedAt?: Date | null;
+  webPushOpenedAt?: Date | null;
+  barkFallbackSentAt?: Date | null;
+  barkFallbackReason?: string | null;
+  barkFallbackError?: string | null;
 }
 
 export interface NotificationGroup {

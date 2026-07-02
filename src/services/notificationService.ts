@@ -43,6 +43,8 @@ export interface NotificationListResponse {
   totalPages: number;
 }
 
+export type NotificationDeliveryEvent = 'displayed' | 'opened';
+
 export class NotificationService {
   private db: ReturnType<typeof getDb>;
 
@@ -244,6 +246,46 @@ export class NotificationService {
       } as Notification;
     } catch (error) {
       logger.error(`Error getting notification ${notificationId}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Record client-side delivery receipts for a notification.
+   * @param notificationId Notification ID
+   * @param userEmail User email
+   * @param event Delivery event type
+   * @returns true when a notification row was updated
+   */
+  async recordDeliveryEvent(
+    notificationId: string,
+    userEmail: string,
+    event: NotificationDeliveryEvent
+  ): Promise<boolean> {
+    const now = new Date();
+    const updateData =
+      event === 'opened'
+        ? {
+          webPushDisplayedAt: now,
+          webPushOpenedAt: now,
+          updatedAt: now,
+        }
+        : {
+          webPushDisplayedAt: now,
+          updatedAt: now,
+        };
+
+    try {
+      const result = await this.db
+        .update(pushNotifications)
+        .set(updateData)
+        .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)))
+        .returning({ id: pushNotifications.id })
+        .get();
+
+      return !!result;
+    } catch (error) {
+      logger.error(`Error recording delivery event for notification ${notificationId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -909,4 +951,4 @@ export class NotificationService {
       throw error;
     }
   }
-} 
+}

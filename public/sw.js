@@ -115,10 +115,23 @@ async function decryptMessage(encryptedContent, nonce) {
   }
 }
 
-self.addEventListener('push', async function (event) {
-  const data = event.data.json();
+self.addEventListener('push', function (event) {
+  event.waitUntil(handlePushEvent(event));
+});
+
+async function handlePushEvent(event) {
+  let data = {};
+
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (error) {
+    console.error('Failed to parse push payload:', error);
+    await showFallbackNotification({});
+    return;
+  }
+
   let options = {
-    body: data.body,
+    body: data.body || data.content || 'Open AlphaPush to view this notification.',
     icon: data.iconUrl || '/icon.png',
     vibrate: [100, 75, 240],
     data: {
@@ -127,45 +140,50 @@ self.addEventListener('push', async function (event) {
       notification_group: data.notification_group,
       type: data.type,
       approvalId: data.approvalId,
-      createdAt: data.createdAt,
+      createdAt: data.createdAt || Date.now(),
       tempAccessToken: data.tempAccessToken,
-      navigateUrl: data.navigate_url,
+      navigateUrl: data.navigate_url || data.navigateUrl,
     },
   };
 
-  if (data.type === 'encrypted') {
-    try {
-      const extraInfo = data.extraInfo ? JSON.parse(data.extraInfo) : {};
-      const nonce = extraInfo.nonce;
-      if (!nonce) {
-        throw new Error('Nonce not found in extra info');
-      }
-      const decryptedContent = await decryptMessage(data.content, nonce);
-      options.body = decryptedContent;
+  try {
+    if (data.type === 'encrypted') {
+      try {
+        const extraInfo = data.extraInfo ? JSON.parse(data.extraInfo) : {};
+        const nonce = extraInfo.nonce;
+        if (!nonce) {
+          throw new Error('Nonce not found in extra info');
+        }
+        const decryptedContent = await decryptMessage(data.content, nonce);
+        options.body = decryptedContent;
 
-      // If there's no title but we have decrypted content, store it for title generation
-      if (!data.title) {
-        data.decryptedContent = decryptedContent;
+        // If there's no title but we have decrypted content, store it for title generation
+        if (!data.title) {
+          data.decryptedContent = decryptedContent;
+        }
+      } catch (error) {
+        console.error('Decryption failed:', error);
+        options.body = 'This is an encrypted notification. Please click the notification to view the details.';
       }
-    } catch (error) {
-      console.error('Decryption failed:', error);
-      options.body = 'This is an encrypted notification. Please click the notification to view the details.';
     }
-  }
 
-  if (data.type === 'approval-process') {
-    options.actions = [
-      { action: 'reject', title: 'Reject' },
-      { action: 'approve', title: 'Approve' },
-    ];
-  } else {
-    options.actions = [{ action: 'detail', title: 'View Details' }];
-  }
+    if (data.type === 'approval-process') {
+      options.actions = [
+        { action: 'reject', title: 'Reject' },
+        { action: 'approve', title: 'Approve' },
+      ];
+    } else {
+      options.actions = [{ action: 'detail', title: 'View Details' }];
+    }
 
-  // Handle notifications with no title
-  const notificationTitle = data.title || getDefaultTitle(data);
-  self.registration.showNotification(notificationTitle, options);
-});
+    // Handle notifications with no title
+    const notificationTitle = data.title || getDefaultTitle(data);
+    await showNotificationWithReceipt(notificationTitle, options);
+  } catch (error) {
+    console.error('Failed to show push notification:', error);
+    await showFallbackNotification(data);
+  }
+}
 
 // Helper function to generate a default title when none is provided
 function getDefaultTitle(data) {
@@ -197,36 +215,41 @@ function getDefaultTitle(data) {
 }
 
 self.addEventListener('notificationclick', function (event) {
-  const notificationData = event.notification.data;
+  const notificationData = event.notification.data || {};
 
   const url = new URL('/', self.location.origin);
   const currentTime = Date.now();
-  const timeSinceCreation = currentTime - notificationData.createdAt;
+  const createdAt = Number(notificationData.createdAt || 0);
+  const timeSinceCreation = createdAt ? currentTime - createdAt : Number.POSITIVE_INFINITY;
 
   if (notificationData.type === 'approval-process') {
     if (timeSinceCreation < TOKEN_TTL - TOKEN_EXPIRY_THRESHOLD) {
       // Token is still valid, directly update the approval state
-      if (event.action === 'approve' || event.action === 'reject') {
+      if ((event.action === 'approve' || event.action === 'reject') && notificationData.approvalId && notificationData.tempAccessToken) {
         event.waitUntil(
-          updateApprovalState(notificationData.approvalId, event.action, notificationData.tempAccessToken)
-            .then(() => {
-              event.notification.close();
-            })
-            .catch((error) => {
-              console.error('Failed to update approval state:', error);
-              // If update fails, fall back to opening the details page
-              url.searchParams.set('approvalId', notificationData.approvalId);
-              url.searchParams.set('action', event.action); // Add action to URL
-              clients.openWindow(url.toString());
-            }),
+          Promise.allSettled([
+            reportDeliveryEvent(notificationData.id, 'opened'),
+            (async () => {
+              try {
+                await updateApprovalState(notificationData.approvalId, event.action, notificationData.tempAccessToken);
+                event.notification.close();
+              } catch (error) {
+                console.error('Failed to update approval state:', error);
+                // If update fails, fall back to opening the details page
+                setSearchParamIfPresent(url, 'approvalId', notificationData.approvalId);
+                setSearchParamIfPresent(url, 'action', event.action); // Add action to URL
+                return clients.openWindow(url.toString());
+              }
+            })(),
+          ]),
         );
         return;
       }
     }
 
     // Token is expired or nearly expired, or action is 'detail'
-    url.searchParams.set('approvalId', notificationData.approvalId);
-    url.searchParams.set('action', event.action); // Add action to URL
+    setSearchParamIfPresent(url, 'approvalId', notificationData.approvalId);
+    setSearchParamIfPresent(url, 'action', event.action); // Add action to URL
   }
 
   // Check if navigateUrl exists and use it instead of default URL
@@ -238,7 +261,7 @@ self.addEventListener('notificationclick', function (event) {
       // Check if the URL has a valid protocol (http or https)
       if (navigateUrl.protocol === 'http:' || navigateUrl.protocol === 'https:') {
         event.notification.close();
-        event.waitUntil(clients.openWindow(navigateUrl.toString()));
+        event.waitUntil(openWindowWithReceipt(navigateUrl.toString(), notificationData.id));
         return;
       } else {
         console.warn('Invalid URL protocol:', navigateUrl.protocol);
@@ -250,14 +273,67 @@ self.addEventListener('notificationclick', function (event) {
 
   // If navigateUrl is not valid or doesn't exist, use the default URL
   if (event.action === 'detail' || !event.action) {
-    url.searchParams.set('notificationId', notificationData.id);
-    url.searchParams.set('category', notificationData.category);
-    url.searchParams.set('notification_group', notificationData.notification_group);
+    setSearchParamIfPresent(url, 'notificationId', notificationData.id);
+    setSearchParamIfPresent(url, 'category', notificationData.category);
+    setSearchParamIfPresent(url, 'notification_group', notificationData.notification_group);
   }
 
   event.notification.close();
-  event.waitUntil(clients.openWindow(url.toString()));
+  event.waitUntil(openWindowWithReceipt(url.toString(), notificationData.id));
 });
+
+function setSearchParamIfPresent(url, key, value) {
+  if (value !== undefined && value !== null && value !== '') {
+    url.searchParams.set(key, String(value));
+  }
+}
+
+async function showNotificationWithReceipt(title, options) {
+  await self.registration.showNotification(title, options);
+  await reportDeliveryEvent(options?.data?.id, 'displayed');
+}
+
+async function showFallbackNotification(data) {
+  await showNotificationWithReceipt('New notification', {
+    body: 'Open AlphaPush to view the latest notification.',
+    icon: '/icon.png',
+    data: {
+      id: data?.id,
+      createdAt: Date.now(),
+    },
+  });
+}
+
+async function openWindowWithReceipt(url, notificationId) {
+  const openWindowPromise = clients.openWindow(url);
+  await Promise.allSettled([
+    reportDeliveryEvent(notificationId, 'opened'),
+    openWindowPromise,
+  ]);
+  return openWindowPromise;
+}
+
+async function reportDeliveryEvent(notificationId, eventType) {
+  if (!notificationId) {
+    return;
+  }
+
+  try {
+    await fetch('/api/push-delivery', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        notificationId,
+        event: eventType,
+      }),
+    });
+  } catch (error) {
+    console.debug('Failed to report notification delivery event:', error);
+  }
+}
 
 async function updateApprovalState(approvalId, action, token) {
   const state = action === 'approve' ? 'approved' : 'rejected';

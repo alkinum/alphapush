@@ -5,6 +5,8 @@ import { getDb } from '@/db';
 import * as schema from '@/schema';
 
 const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',') || [];
+const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 180; // 180 days
+const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 6; // 6 hours
 
 export function createAuth(db: D1Database) {
   return betterAuth({
@@ -27,8 +29,8 @@ export function createAuth(db: D1Database) {
       },
     },
     session: {
-      expiresIn: 60 * 60 * 24 * 30, // 30 days
-      updateAge: 60 * 60 * 24, // 1 day
+      expiresIn: SESSION_EXPIRES_IN_SECONDS,
+      updateAge: SESSION_UPDATE_AGE_SECONDS,
       cookieCache: {
         enabled: true,
         maxAge: 5 * 60, // 5 minutes

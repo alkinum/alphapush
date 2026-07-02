@@ -5,12 +5,26 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 export interface UserPreference {
   showNotificationIcons: boolean;
-  // Add more user preferences here in the future
+  barkFallbackEnabled: boolean;
+  barkFallbackAlways: boolean;
+  barkServerUrl: string;
+  barkDeviceKey: string;
 }
 
 export const defaultPreferences: UserPreference = {
   showNotificationIcons: true,
+  barkFallbackEnabled: false,
+  barkFallbackAlways: false,
+  barkServerUrl: 'https://api.day.app',
+  barkDeviceKey: '',
 };
+
+export function mergeWithDefaultPreferences(preferences: Partial<UserPreference> | null | undefined): UserPreference {
+  return {
+    ...defaultPreferences,
+    ...(preferences || {}),
+  };
+}
 
 /**
  * UserPreferenceService for managing user preferences
@@ -37,8 +51,8 @@ export class UserPreferenceService {
         return this.createUserPreferences(userEmail, defaultPreferences);
       }
 
-      // Parse the stored JSON string
-      return JSON.parse(result[0].preferences) as UserPreference;
+      // Parse the stored JSON string and fill fields added after the row was created.
+      return mergeWithDefaultPreferences(JSON.parse(result[0].preferences) as Partial<UserPreference>);
     } catch (error) {
       console.error('Error getting user preferences:', error);
       // If an error occurs, return default settings
@@ -170,7 +184,7 @@ export const userPreferenceManager = {
   async updatePreferences(userEmail: string, preferences: Partial<UserPreference>): Promise<UserPreference> {
     // First update local storage
     const currentPrefs = this.getLocalPreferences() || { ...defaultPreferences };
-    const updatedPrefs = { ...currentPrefs, ...preferences };
+    const updatedPrefs = mergeWithDefaultPreferences({ ...currentPrefs, ...preferences });
     this.saveLocalPreferences(updatedPrefs);
 
     // Then asynchronously update server if service is available
@@ -229,7 +243,7 @@ export const userPreferenceManager = {
         return null;
       }
 
-      return JSON.parse(prefsString) as UserPreference;
+      return mergeWithDefaultPreferences(JSON.parse(prefsString) as Partial<UserPreference>);
     } catch (error) {
       console.error('Error parsing local preferences:', error);
       return null;

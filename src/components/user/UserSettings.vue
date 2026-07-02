@@ -23,7 +23,7 @@ import { cn } from '@/utils/shadcn';
 import { setMasterKey, getMasterKey } from '@/utils/encryption';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { userPreferenceManager, type UserPreference } from '@/services/userPreferenceService';
+import { defaultPreferences, userPreferenceManager, type UserPreference } from '@/services/userPreferenceService';
 
 const { toast } = useToast();
 
@@ -33,7 +33,13 @@ const showResetPushTokenDialog = ref(false);
 const pushToken = ref<string | undefined>(undefined);
 const vapidPublicKey = ref<string | null>(null);
 const showNotificationIcons = ref(true);
+const barkFallbackEnabled = ref(false);
+const barkFallbackAlways = ref(false);
+const barkServerUrl = ref(defaultPreferences.barkServerUrl);
+const barkDeviceKey = ref('');
+const showBarkDeviceKey = ref(false);
 const isSendingTestPush = ref(false);
+const isSavingBarkFallback = ref(false);
 
 const props = defineProps<{
   initialPushToken?: string;
@@ -64,6 +70,14 @@ const userInitials = computed(() => {
 const masterKey = ref('');
 const showMasterKey = ref(false);
 
+const applyPreferences = (preferences: UserPreference) => {
+  showNotificationIcons.value = preferences.showNotificationIcons ?? defaultPreferences.showNotificationIcons;
+  barkFallbackEnabled.value = preferences.barkFallbackEnabled ?? defaultPreferences.barkFallbackEnabled;
+  barkFallbackAlways.value = preferences.barkFallbackAlways ?? defaultPreferences.barkFallbackAlways;
+  barkServerUrl.value = preferences.barkServerUrl || defaultPreferences.barkServerUrl;
+  barkDeviceKey.value = preferences.barkDeviceKey || '';
+};
+
 onMounted(async () => {
   // Only run client-side code in the browser
   if (typeof window !== 'undefined') {
@@ -74,8 +88,8 @@ onMounted(async () => {
       masterKey.value = existingMasterKey;
     }
 
-    // First load from local storage with default value true
-    showNotificationIcons.value = userPreferenceManager.getPreference('showNotificationIcons', true);
+    // First load from local storage for immediate UI state.
+    applyPreferences(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences });
 
     // Then fetch the latest preferences from server to ensure we're in sync
     if (props.userInfo.email) {
@@ -91,7 +105,7 @@ onMounted(async () => {
 
           if (preferences) {
             // Update local state with server values
-            showNotificationIcons.value = preferences.showNotificationIcons ?? true;
+            applyPreferences(preferences);
 
             // Update local storage
             userPreferenceManager.saveLocalPreferences(preferences);
@@ -115,7 +129,7 @@ const toggleNotificationIcons = async (value: boolean) => {
   try {
     // Save to local storage first for immediate UI response
     userPreferenceManager.saveLocalPreferences({
-      ...(userPreferenceManager.getLocalPreferences() || { showNotificationIcons: true }),
+      ...(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences }),
       showNotificationIcons: value,
     });
 
@@ -147,6 +161,82 @@ const toggleNotificationIcons = async (value: boolean) => {
       description: 'Failed to save preference. Please try again.',
       variant: 'destructive',
     });
+  }
+};
+
+const saveBarkFallbackPreferences = async () => {
+  const trimmedServerUrl = barkServerUrl.value.trim() || defaultPreferences.barkServerUrl;
+  const trimmedDeviceKey = barkDeviceKey.value.trim();
+
+  if (barkFallbackEnabled.value && !trimmedDeviceKey) {
+    toast({
+      title: 'Missing Device Key',
+      description: 'Enter a Bark device key before enabling fallback.',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedServerUrl);
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      throw new Error('Bark server URL must use http or https');
+    }
+  } catch (error) {
+    toast({
+      title: 'Invalid Bark Server',
+      description: error instanceof Error ? error.message : 'Enter a valid Bark server URL.',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  const preferences = {
+    barkFallbackEnabled: barkFallbackEnabled.value,
+    barkFallbackAlways: barkFallbackEnabled.value ? barkFallbackAlways.value : false,
+    barkServerUrl: trimmedServerUrl,
+    barkDeviceKey: trimmedDeviceKey,
+  };
+
+  try {
+    isSavingBarkFallback.value = true;
+    const localPreferences = {
+      ...(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences }),
+      ...preferences,
+    };
+    userPreferenceManager.saveLocalPreferences(localPreferences);
+
+    const response = await fetch('/api/user-preferences', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ preferences }),
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(errorData.error || 'Failed to save Bark fallback settings');
+    }
+
+    const data = (await response.json()) as { preferences: UserPreference };
+    applyPreferences(data.preferences);
+    userPreferenceManager.saveLocalPreferences(data.preferences);
+
+    toast({
+      title: 'Bark Fallback Saved',
+      description: barkFallbackEnabled.value ? 'Bark fallback is ready.' : 'Bark fallback is disabled.',
+    });
+  } catch (error) {
+    console.error('Error saving Bark fallback settings:', error);
+    toast({
+      title: 'Error',
+      description: error instanceof Error ? error.message : 'Failed to save Bark fallback settings.',
+      variant: 'destructive',
+    });
+  } finally {
+    isSavingBarkFallback.value = false;
   }
 };
 
@@ -465,6 +555,83 @@ defineExpose({ openSettings });
                   @update:model-value="toggleNotificationIcons"
                 />
               </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Delivery Reliability</CardTitle>
+            </CardHeader>
+            <CardContent :class="cn('pt-0 space-y-4')">
+              <div class="flex items-center justify-between gap-4">
+                <div class="space-y-0.5">
+                  <Label for="bark-fallback-enabled">Bark Fallback</Label>
+                  <p class="text-xs text-muted-foreground">Forward to Bark when Web Push has no successful delivery</p>
+                </div>
+                <Switch
+                  id="bark-fallback-enabled"
+                  :model-value="barkFallbackEnabled"
+                  @update:model-value="(value) => (barkFallbackEnabled = value)"
+                />
+              </div>
+
+              <div class="space-y-2">
+                <Label for="bark-server-url">Bark Server</Label>
+                <Input
+                  id="bark-server-url"
+                  v-model="barkServerUrl"
+                  placeholder="https://api.day.app"
+                  :disabled="!barkFallbackEnabled"
+                />
+              </div>
+
+              <div class="space-y-2">
+                <Label for="bark-device-key">Bark Device Key</Label>
+                <div class="flex space-x-2">
+                  <Input
+                    id="bark-device-key"
+                    v-model="barkDeviceKey"
+                    :type="showBarkDeviceKey ? 'text' : 'password'"
+                    placeholder="Device key"
+                    :disabled="!barkFallbackEnabled"
+                  />
+                  <Button
+                    @click="showBarkDeviceKey = !showBarkDeviceKey"
+                    variant="outline"
+                    size="icon"
+                    :disabled="!barkFallbackEnabled"
+                  >
+                    <Icon :icon="showBarkDeviceKey ? 'mdi:eye' : 'mdi:eye-off'" class="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-4">
+                <div class="space-y-0.5">
+                  <Label for="bark-fallback-always">Always Send to Bark</Label>
+                  <p class="text-xs text-muted-foreground">Use Bark as a parallel channel for every notification</p>
+                </div>
+                <Switch
+                  id="bark-fallback-always"
+                  :model-value="barkFallbackAlways"
+                  :disabled="!barkFallbackEnabled"
+                  @update:model-value="(value) => (barkFallbackAlways = value)"
+                />
+              </div>
+
+              <Button
+                @click="saveBarkFallbackPreferences"
+                variant="secondary"
+                size="sm"
+                class="w-full"
+                :disabled="isSavingBarkFallback"
+              >
+                <Icon
+                  :icon="isSavingBarkFallback ? 'mdi:loading' : 'mdi:content-save'"
+                  class="h-4 w-4 mr-2"
+                  :class="{ 'animate-spin': isSavingBarkFallback }"
+                />
+                Save Bark Fallback
+              </Button>
             </CardContent>
           </Card>
           <Card>

@@ -349,7 +349,11 @@ export const POST: APIRoute = async ({ request }) => {
         JSON.stringify({
           success: false,
           error: pushResult.error || 'Some push notifications failed to send',
+          successfulPushes: pushResult.successfulPushes,
           failedPushes: pushResult.failedPushes,
+          barkFallbackSent: pushResult.barkFallbackSent,
+          barkFallbackReason: pushResult.barkFallbackReason,
+          barkFallbackError: pushResult.barkFallbackError,
         }),
         {
           status: 200,
@@ -362,9 +366,19 @@ export const POST: APIRoute = async ({ request }) => {
       success: boolean;
       notificationId: string;
       approvalId?: string;
+      successfulPushes?: number;
+      failedPushes?: Array<{ subscriptionId: string; reason: string }>;
+      barkFallbackSent?: boolean;
+      barkFallbackReason?: string;
+      barkFallbackError?: string;
     } = {
       success: true,
       notificationId: notification.id,
+      successfulPushes: pushResult.successfulPushes,
+      failedPushes: pushResult.failedPushes,
+      barkFallbackSent: pushResult.barkFallbackSent,
+      barkFallbackReason: pushResult.barkFallbackReason,
+      barkFallbackError: pushResult.barkFallbackError,
     };
 
     if (mergedParams.type === 'approval-process' && approvalId) {

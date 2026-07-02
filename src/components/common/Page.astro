@@ -48,7 +48,7 @@ const notificationId = url.searchParams.get('notificationId');
   </head>
   <body
     class="min-h-screen overflow-x-hidden"
-    data-user-logged-in={isLoggedIn}
+    data-user-logged-in={isLoggedIn ? 'true' : 'false'}
     data-user-email={userEmail}
     data-notification-id={notificationId || ''}
   >
@@ -63,5 +63,12 @@ const notificationId = url.searchParams.get('notificationId');
     <slot name="body-ended" />
     <Toaster client:load />
     <PwaGuidance client:load />
+    <script>
+      import { initializeDeliveryReceipts } from '@/modules/deliveryReceipts';
+      import { initializeSessionKeepalive } from '@/modules/sessionKeepalive';
+
+      initializeDeliveryReceipts();
+      initializeSessionKeepalive();
+    </script>
   </body>
 </html>

@@ -8,6 +8,9 @@ import { isSafari } from '@/lib/utils';
 const FINGERPRINTS_STORAGE_KEY = 'userFingerprints';
 const VAPID_KEY_STORAGE_KEY = 'vapidPublicKey';
 const PUSH_TOKEN_STORAGE_KEY = 'pushToken';
+const SUBSCRIPTION_HEALTH_STORAGE_KEY = 'pushSubscriptionHealthCheckAt';
+const SUBSCRIPTION_HEALTH_INTERVAL_MS = 60 * 60 * 1000;
+const SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 // State
 let vapidPublicKey: string | null = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
@@ -19,6 +22,10 @@ interface UserFingerprints {
 }
 
 const { toast } = useToast();
+
+function isCurrentUserLoggedIn(): boolean {
+  return document.body.dataset.userLoggedIn === 'true' && !!document.body.dataset.userEmail;
+}
 
 /**
  * Get stored fingerprints for all users
@@ -143,11 +150,70 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+function normalizeVapidKey(publicKey: string): string {
+  return publicKey.replace(/=+$/g, '');
+}
+
+function getSubscriptionApplicationServerKey(subscription: PushSubscription): string | null {
+  const applicationServerKey = subscription.options?.applicationServerKey;
+
+  if (!applicationServerKey) {
+    return null;
+  }
+
+  if (typeof applicationServerKey === 'string') {
+    return normalizeVapidKey(applicationServerKey);
+  }
+
+  return arrayBufferToBase64(applicationServerKey);
+}
+
+function getSubscriptionRefreshReason(subscription: PushSubscription, publicKey: string): string | null {
+  const existingKey = getSubscriptionApplicationServerKey(subscription);
+  const normalizedPublicKey = normalizeVapidKey(publicKey);
+
+  if (existingKey && existingKey !== normalizedPublicKey) {
+    return 'application server key mismatch';
+  }
+
+  if (
+    typeof subscription.expirationTime === 'number' &&
+    subscription.expirationTime - Date.now() < SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS
+  ) {
+    return 'subscription is expired or expiring soon';
+  }
+
+  return null;
+}
+
 /**
  * Check if Safari supports declarative web push (window.pushManager)
  */
 function supportsSafariDeclarativePush(): boolean {
   return isSafari() && 'pushManager' in window && 'subscribe' in (window as any).pushManager;
+}
+
+async function getActiveWebPushSubscription(): Promise<PushSubscription | null> {
+  if (supportsSafariDeclarativePush()) {
+    const safariPushManager = (window as any).pushManager;
+    return await safariPushManager.getSubscription();
+  }
+
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    const registration = await navigator.serviceWorker.ready;
+    return await registration.pushManager.getSubscription();
+  }
+
+  return null;
+}
+
+export async function hasActiveWebPushSubscription(): Promise<boolean> {
+  try {
+    return !!(await getActiveWebPushSubscription());
+  } catch (error) {
+    console.warn('Failed to check active web push subscription:', error);
+    return false;
+  }
 }
 
 /**
@@ -159,8 +225,7 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
 
     // Handle Safari declarative push
     if (supportsSafariDeclarativePush()) {
-      const safariPushManager = (window as any).pushManager;
-      subscription = await safariPushManager.getSubscription();
+      subscription = await getActiveWebPushSubscription();
 
       if (subscription) {
         await subscription.unsubscribe();
@@ -169,8 +234,7 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
     }
     // Handle service worker-based push
     else if ('serviceWorker' in navigator && 'PushManager' in window) {
-      const registration = await navigator.serviceWorker.ready;
-      subscription = await registration.pushManager.getSubscription();
+      subscription = await getActiveWebPushSubscription();
 
       // If we have an active subscription, unsubscribe from it
       if (subscription) {
@@ -315,13 +379,11 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       // Check for existing subscription
       subscription = await safariPushManager.getSubscription();
 
-      // Compare the existing subscription's application server key with the new one
       if (subscription) {
-        const existingKey = arrayBufferToBase64(subscription.options.applicationServerKey as ArrayBuffer);
-        const normalizedPublicKey = publicKey.replace(/=/g, ''); // Remove padding if any
+        const refreshReason = getSubscriptionRefreshReason(subscription, publicKey);
 
-        if (existingKey !== normalizedPublicKey) {
-          console.debug('Application server key mismatch, unsubscribing old subscription');
+        if (refreshReason) {
+          console.debug(`Refreshing Safari push subscription: ${refreshReason}`);
           await subscription.unsubscribe();
           subscription = null;
         }
@@ -354,13 +416,11 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       // Check for existing subscription
       subscription = await registration.pushManager.getSubscription();
 
-      // Compare the existing subscription's application server key with the new one
       if (subscription) {
-        const existingKey = arrayBufferToBase64(subscription.options.applicationServerKey as ArrayBuffer);
-        const normalizedPublicKey = publicKey.replace(/=/g, ''); // Remove padding if any
+        const refreshReason = getSubscriptionRefreshReason(subscription, publicKey);
 
-        if (existingKey !== normalizedPublicKey) {
-          console.debug('Application server key mismatch, unsubscribing old subscription');
+        if (refreshReason) {
+          console.debug(`Refreshing push subscription: ${refreshReason}`);
           await subscription.unsubscribe();
           subscription = null;
         }
@@ -476,6 +536,30 @@ export async function initializeWebPush(forceRefresh = false): Promise<boolean> 
   }
 }
 
+async function refreshSubscriptionHealth(force = false): Promise<boolean> {
+  if (!isCurrentUserLoggedIn() || Notification.permission !== 'granted') {
+    return false;
+  }
+
+  const now = Date.now();
+  const lastCheck = Number(localStorage.getItem(SUBSCRIPTION_HEALTH_STORAGE_KEY) || '0');
+
+  if (!force && Number.isFinite(lastCheck) && now - lastCheck < SUBSCRIPTION_HEALTH_INTERVAL_MS) {
+    return true;
+  }
+
+  const success = await initializeWebPush(force);
+  if (success) {
+    localStorage.setItem(SUBSCRIPTION_HEALTH_STORAGE_KEY, String(Date.now()));
+  }
+
+  return success;
+}
+
+export async function repairPushSubscription(): Promise<boolean> {
+  return refreshSubscriptionHealth(true);
+}
+
 /**
  * Handle SSE connection errors
  */
@@ -572,7 +656,7 @@ export async function cleanupOnLogout(): Promise<void> {
  */
 export function initializePushModule(): void {
   // Check if user is logged in
-  const isLoggedIn = document.body.hasAttribute('data-user-logged-in');
+  const isLoggedIn = isCurrentUserLoggedIn();
   const userEmail = document.body.getAttribute('data-user-email');
 
   if (!isLoggedIn || !userEmail) {
@@ -625,6 +709,20 @@ export function initializePushModule(): void {
   window.addEventListener('SSEConnectionError', async (event) => {
     const { error, code } = (event as CustomEvent).detail;
     await handleSSEConnectionError(error, code);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void refreshSubscriptionHealth();
+    }
+  });
+
+  window.addEventListener('pageshow', () => {
+    void refreshSubscriptionHealth();
+  });
+
+  window.addEventListener('online', () => {
+    void refreshSubscriptionHealth(true);
   });
 
   // Check for fingerprint changes periodically

@@ -12,6 +12,78 @@ function isValidSHA256(hash: string): boolean {
   return sha256Regex.test(hash);
 }
 
+const STALE_SUBSCRIPTION_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export const GET: APIRoute = async (context) => {
+  try {
+    const session = await getSessionFromContext(context);
+    if (!session?.user?.email) {
+      logger.warn('Unauthorized subscription health request');
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const userEmail = session.user.email;
+    const db = getDb(env.DB);
+    const userSubscriptions = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userEmail, userEmail))
+      .all();
+
+    const now = Date.now();
+    const healthSubscriptions = userSubscriptions.map((subscription) => {
+      const lastSeenAt = subscription.lastSeenAt?.getTime() || null;
+      const lastSuccessAt = subscription.lastSuccessAt?.getTime() || null;
+      const lastFailureAt = subscription.lastFailureAt?.getTime() || null;
+      const failureCount = subscription.failureCount || 0;
+      const hasRecentSeen = !!lastSeenAt && now - lastSeenAt < STALE_SUBSCRIPTION_THRESHOLD_MS;
+      const hasRecentSuccess = !!lastSuccessAt && now - lastSuccessAt < STALE_SUBSCRIPTION_THRESHOLD_MS;
+      const isStale = !hasRecentSeen && !hasRecentSuccess;
+      const isFailing = failureCount >= 3 && (!lastSuccessAt || (!!lastFailureAt && lastFailureAt >= lastSuccessAt));
+
+      return {
+        id: subscription.id,
+        isSafari: !!subscription.isSafari,
+        lastSeenAt: subscription.lastSeenAt,
+        lastSuccessAt: subscription.lastSuccessAt,
+        lastFailureAt: subscription.lastFailureAt,
+        failureCount,
+        lastStatusCode: subscription.lastStatusCode,
+        createdAt: subscription.createdAt,
+        updatedAt: subscription.updatedAt,
+        isStale,
+        isFailing,
+      };
+    });
+
+    const failingCount = healthSubscriptions.filter((subscription) => subscription.isFailing).length;
+    const staleCount = healthSubscriptions.filter((subscription) => subscription.isStale).length;
+    const safariCount = healthSubscriptions.filter((subscription) => subscription.isSafari).length;
+    const total = healthSubscriptions.length;
+    const needsRepair = total === 0 || failingCount > 0 || (total > 0 && staleCount === total);
+
+    return jsonResponse({
+      total,
+      hasServerSubscription: total > 0,
+      failingCount,
+      staleCount,
+      safariCount,
+      needsRepair,
+      subscriptions: healthSubscriptions,
+    });
+  } catch (error) {
+    logger.error('Error getting subscription health:', error);
+    return jsonResponse({ error: 'Internal server error' }, 500);
+  }
+};
+
 export const PUT: APIRoute = async (context) => {
   try {
     const session = await getSessionFromContext(context);
@@ -60,7 +132,10 @@ export const PUT: APIRoute = async (context) => {
         .set({
           subscription: JSON.stringify(subscription),
           isSafari: isSafari,
-          updatedAt: new Date()
+          lastSeenAt: new Date(),
+          failureCount: 0,
+          lastStatusCode: null,
+          updatedAt: new Date(),
         })
         .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.deviceFingerprint, deviceFingerprint)))
         .returning({ updatedAt: subscriptions.updatedAt })
@@ -83,6 +158,7 @@ export const PUT: APIRoute = async (context) => {
           deviceFingerprint,
           subscription: JSON.stringify(subscription),
           isSafari: isSafari,
+          lastSeenAt: new Date(),
         })
         .returning({ createdAt: subscriptions.createdAt })
         .get();

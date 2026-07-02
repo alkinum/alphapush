@@ -12,15 +12,20 @@ type SessionWithRole = NonNullable<BetterAuthSession> & {
 };
 export type AuthSession = SessionWithRole | null;
 
+export interface GetSessionOptions {
+  disableCookieCache?: boolean;
+}
+
 /**
  * Get the current session from Better Auth
  */
-export async function getSession(request: Request, db: D1Database): Promise<AuthSession> {
+export async function getSession(request: Request, db: D1Database, options: GetSessionOptions = {}): Promise<AuthSession> {
   const auth = createAuth(db);
 
   try {
     const session = await auth.api.getSession({
       headers: request.headers,
+      query: options.disableCookieCache ? { disableCookieCache: true } : undefined,
     });
 
     return session as SessionWithRole | null;
@@ -33,8 +38,8 @@ export async function getSession(request: Request, db: D1Database): Promise<Auth
 /**
  * Get session for Astro API routes
  */
-export async function getSessionFromContext(context: APIContext) {
-  return getSession(context.request, env.DB);
+export async function getSessionFromContext(context: APIContext, options: GetSessionOptions = {}) {
+  return getSession(context.request, env.DB, options);
 }
 
 /**
