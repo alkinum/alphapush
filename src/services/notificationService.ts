@@ -715,6 +715,42 @@ export class NotificationService {
   }
 
   /**
+   * Delete multiple notifications owned by a user.
+   * @param notificationIds Notification IDs
+   * @param userEmail User email
+   * @returns IDs that were deleted
+   */
+  async deleteNotifications(notificationIds: string[], userEmail: string): Promise<string[]> {
+    const uniqueNotificationIds = Array.from(new Set(notificationIds.filter(Boolean)));
+    logger.debug(`Deleting ${uniqueNotificationIds.length} notifications for user ${userEmail}`);
+
+    if (uniqueNotificationIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const deletedNotifications = await this.db
+        .delete(pushNotifications)
+        .where(
+          and(
+            eq(pushNotifications.userEmail, userEmail),
+            inArray(pushNotifications.id, uniqueNotificationIds)
+          )
+        )
+        .returning({ id: pushNotifications.id })
+        .all();
+
+      const deletedIds = deletedNotifications.map((notification) => notification.id);
+      logger.info(`Deleted ${deletedIds.length} notifications for user ${userEmail}`);
+
+      return deletedIds;
+    } catch (error) {
+      logger.error(`Error deleting notifications: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
    * Get or create a category
    * @param userEmail User email
    * @param name Category name

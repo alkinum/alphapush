@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import hljs from 'highlight.js';
 import { marked } from 'marked';
 import { useSwipe } from '@vueuse/core';
@@ -10,6 +10,7 @@ import { userPreferenceManager } from '@/services/userPreferenceService';
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { Notification } from '@/types/notification';
 import {
   ContextMenu,
@@ -27,11 +28,22 @@ import 'highlight.js/styles/github-dark.css';
 
 interface Props {
   notification: Notification & { highlight?: boolean; isDeleting?: boolean; isNew?: boolean };
+  selectionMode?: boolean;
+  selected?: boolean;
+  selectionEnabled?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  selectionMode: false,
+  selected: false,
+  selectionEnabled: false,
+});
 
-const emit = defineEmits(['deleted']);
+const emit = defineEmits<{
+  (e: 'deleted', id: string): void;
+  (e: 'selectionToggle', id: string): void;
+  (e: 'selectionStart', id: string): void;
+}>();
 
 const { toast } = useToast();
 const showDeleteDialog = ref(false);
@@ -43,6 +55,9 @@ const buttonText = ref('View All');
 const isMobile = ref(false);
 const isSwiped = ref(false);
 const cardRef = ref<HTMLElement | null>(null);
+const longPressTimer = ref<number | null>(null);
+const longPressTriggered = ref(false);
+const pointerStart = ref<{ x: number; y: number } | null>(null);
 
 const renderer = new marked.Renderer();
 renderer.code = ({ text, lang }) => {
@@ -55,6 +70,8 @@ const decryptionError = ref<string | null>(null);
 
 const LINE_HEIGHT = 24;
 const MAX_LINES = 10;
+const LONG_PRESS_DURATION_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 8;
 
 // Check if notification icons should be displayed
 // Use a safe approach that works in both client and server environments
@@ -165,6 +182,92 @@ const handleDelete = async () => {
 
 const handleSwipeReset = () => {
   isSwiped.value = false;
+};
+
+const isInteractiveTarget = (target: EventTarget | null) => {
+  return target instanceof Element && !!target.closest('button, a, input, textarea, select, [role="button"]');
+};
+
+const clearLongPressTimer = () => {
+  if (longPressTimer.value !== null) {
+    window.clearTimeout(longPressTimer.value);
+    longPressTimer.value = null;
+  }
+};
+
+const startSelection = () => {
+  if (!props.selectionEnabled || isMobile.value) {
+    return;
+  }
+
+  longPressTriggered.value = true;
+  emit('selectionStart', props.notification.id);
+};
+
+const handlePointerDown = (event: PointerEvent) => {
+  if (
+    !props.selectionEnabled ||
+    props.selectionMode ||
+    isMobile.value ||
+    event.button !== 0 ||
+    isInteractiveTarget(event.target)
+  ) {
+    return;
+  }
+
+  pointerStart.value = { x: event.clientX, y: event.clientY };
+  clearLongPressTimer();
+  longPressTimer.value = window.setTimeout(startSelection, LONG_PRESS_DURATION_MS);
+};
+
+const handlePointerMove = (event: PointerEvent) => {
+  if (!pointerStart.value || longPressTimer.value === null) {
+    return;
+  }
+
+  const distanceX = Math.abs(event.clientX - pointerStart.value.x);
+  const distanceY = Math.abs(event.clientY - pointerStart.value.y);
+
+  if (distanceX > LONG_PRESS_MOVE_TOLERANCE || distanceY > LONG_PRESS_MOVE_TOLERANCE) {
+    clearLongPressTimer();
+  }
+};
+
+const handlePointerEnd = () => {
+  clearLongPressTimer();
+  pointerStart.value = null;
+};
+
+const handleCardClick = (event: MouseEvent) => {
+  if (longPressTriggered.value) {
+    event.preventDefault();
+    longPressTriggered.value = false;
+    return;
+  }
+
+  if (props.selectionMode && !isMobile.value && !isInteractiveTarget(event.target)) {
+    emit('selectionToggle', props.notification.id);
+    return;
+  }
+
+  handleSwipeReset();
+};
+
+const handleSelectionCheckboxChange = () => {
+  emit('selectionToggle', props.notification.id);
+};
+
+const handleSelectFromContextMenu = () => {
+  if (!props.selectionEnabled) {
+    return;
+  }
+
+  if (props.selectionMode) {
+    emit('selectionToggle', props.notification.id);
+    return;
+  }
+
+  emit('selectionStart', props.notification.id);
 };
 
 const isApprovalProcess = computed(() => props.notification.type === 'approval-process');
@@ -288,6 +391,10 @@ onMounted(async () => {
   }
 });
 
+onUnmounted(() => {
+  clearLongPressTimer();
+});
+
 const handleCancelDelete = () => {
   showDeleteDialog.value = false;
 };
@@ -314,23 +421,39 @@ const handleCancelDelete = () => {
       </CardContent>
     </Card>
   </div>
-  <div class="relative" v-else>
-    <div
-      ref="cardRef"
-      :id="`notification-${props.notification.id}`"
-      class="w-full mb-4 overflow-hidden notification-card"
-      :class="{
-        'highlight-effect': props.notification.highlight,
-        swiped: isSwiped,
-        deleting: props.notification.isDeleting,
-        'new-notification': props.notification.isNew,
-        'unread-notification': isUnread,
-      }"
-      @click="handleSwipeReset"
-    >
+  <ContextMenu v-else>
+    <ContextMenuTrigger as-child :disabled="isMobile">
+      <div class="relative">
+        <div
+          ref="cardRef"
+          :id="`notification-${props.notification.id}`"
+          class="w-full mb-4 overflow-hidden notification-card"
+          :class="{
+            'highlight-effect': props.notification.highlight,
+            swiped: isSwiped,
+            deleting: props.notification.isDeleting,
+            'new-notification': props.notification.isNew,
+            'unread-notification': isUnread,
+            selected: props.selected,
+            'selection-mode': props.selectionMode,
+          }"
+          @click="handleCardClick"
+          @pointerdown="handlePointerDown"
+          @pointermove="handlePointerMove"
+          @pointerup="handlePointerEnd"
+          @pointerleave="handlePointerEnd"
+          @pointercancel="handlePointerEnd"
+        >
       <Card>
         <CardHeader class="pt-6 pb-2 px-6">
           <div class="flex items-center gap-3">
+            <div v-if="props.selectionMode && !isMobile" class="flex-shrink-0" @click.stop>
+              <Checkbox
+                :checked="props.selected"
+                aria-label="Select notification"
+                @update:checked="handleSelectionCheckboxChange"
+              />
+            </div>
             <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
               <img
                 :src="props.notification.iconUrl"
@@ -381,7 +504,7 @@ const handleCancelDelete = () => {
             variant="ghost"
             size="sm"
             class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
-            @click="toggleContent"
+            @click.stop="toggleContent"
           >
             {{ buttonText }}
           </Button>
@@ -398,7 +521,7 @@ const handleCancelDelete = () => {
           </div>
         </CardFooter>
       </Card>
-    </div>
+        </div>
 
     <Button
       v-if="isMobile"
@@ -411,13 +534,15 @@ const handleCancelDelete = () => {
     >
       <Icon icon="mdi:delete" class="w-5 h-5" />
     </Button>
-  </div>
-
-  <ContextMenu v-if="!isMobile">
-    <ContextMenuTrigger :disabled="true">
-      <!-- Empty trigger, actual card is outside -->
+      </div>
     </ContextMenuTrigger>
-    <ContextMenuContent>
+    <ContextMenuContent v-if="!isMobile">
+      <ContextMenuItem v-if="props.selectionEnabled" @select="handleSelectFromContextMenu">
+        {{ props.selected ? 'Deselect' : 'Select' }}
+        <ContextMenuShortcut>
+          <Icon :icon="props.selected ? 'mdi:checkbox-blank-outline' : 'mdi:checkbox-marked-outline'" class="w-4 h-4" />
+        </ContextMenuShortcut>
+      </ContextMenuItem>
       <ContextMenuItem @select="showDeleteDialog = true">
         Delete
         <ContextMenuShortcut>
@@ -558,6 +683,15 @@ const handleCancelDelete = () => {
   transition: transform 0.3s ease;
   position: relative;
   z-index: 1;
+}
+
+.notification-card.selection-mode {
+  cursor: pointer;
+}
+
+.notification-card.selected .border {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4);
 }
 
 .notification-card.swiped {

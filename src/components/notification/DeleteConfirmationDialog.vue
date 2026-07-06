@@ -13,9 +13,18 @@ interface Props {
   isOpen: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
 }
 
-defineProps<Props>();
+withDefaults(defineProps<Props>(), {
+  title: 'Confirm Deletion',
+  description: 'Are you sure you want to delete this notification? This action cannot be undone.',
+  confirmLabel: 'Delete',
+  cancelLabel: 'Cancel',
+});
 defineEmits<{
   (e: 'update:isOpen', value: boolean): void;
 }>();
@@ -25,14 +34,14 @@ defineEmits<{
   <Dialog :open="isOpen" @update:open="$emit('update:isOpen', $event)">
     <DialogContent class="max-w-[95vw] sm:max-w-[425px]">
       <DialogHeader>
-        <DialogTitle>Confirm Deletion</DialogTitle>
+        <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription class="mt-4">
-          Are you sure you want to delete this notification? This action cannot be undone.
+          {{ description }}
         </DialogDescription>
       </DialogHeader>
       <DialogFooter class="sm:space-x-2 flex flex-col-reverse sm:flex-row sm:justify-end">
-        <Button @click="onCancel" variant="outline" class="mt-2 sm:mt-0">Cancel</Button>
-        <Button @click="onConfirm" variant="destructive">Delete</Button>
+        <Button @click="onCancel" variant="outline" class="mt-2 sm:mt-0">{{ cancelLabel }}</Button>
+        <Button @click="onConfirm" variant="destructive">{{ confirmLabel }}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

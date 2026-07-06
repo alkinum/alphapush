@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useToast } from '@/components/ui/toast/use-toast';
 import PullToRefresh from '@/components/ui/pull-to-refresh/PullToRefresh.vue';
 import type { Notification } from '@/types/notification';
 
@@ -13,6 +14,7 @@ import { useNotificationFilters, type Category, type Group } from './composable/
 import Login from '../user/Login.vue';
 import NotificationCard from './NotificationCard.vue';
 import NotificationGroupSwitch from './NotificationGroupSwitch.vue';
+import DeleteConfirmationDialog from './DeleteConfirmationDialog.vue';
 
 interface Props {
   session: {
@@ -36,9 +38,20 @@ const props = withDefaults(defineProps<Props>(), {
   enablePullToRefresh: true,
 });
 
+const { toast } = useToast();
+
 // User information
 const user = ref(props.session?.user);
 const userEmail = ref<string | undefined>(user.value?.email || undefined);
+const selectionMode = ref(false);
+const selectedNotificationIds = ref<Set<string>>(new Set());
+const showBatchDeleteDialog = ref(false);
+const isDeletingSelected = ref(false);
+const selectedCount = computed(() => selectedNotificationIds.value.size);
+const selectedDeleteDescription = computed(() => {
+  const count = selectedCount.value;
+  return `Are you sure you want to delete ${count} selected notification${count === 1 ? '' : 's'}? This action cannot be undone.`;
+});
 
 // Watch for user email changes
 watch(
@@ -70,8 +83,94 @@ const {
   highlightNotification,
 } = useNotificationsData(props.initialNotifications);
 
+const hasNotifications = computed(() => notifications.value.length > 0);
+
+const clearSelection = () => {
+  selectedNotificationIds.value = new Set();
+  selectionMode.value = false;
+  showBatchDeleteDialog.value = false;
+};
+
+const enterSelectionMode = (notificationId?: string) => {
+  selectionMode.value = true;
+
+  if (notificationId) {
+    const nextSelection = new Set(selectedNotificationIds.value);
+    nextSelection.add(notificationId);
+    selectedNotificationIds.value = nextSelection;
+  }
+};
+
+const toggleNotificationSelection = (notificationId: string) => {
+  const nextSelection = new Set(selectedNotificationIds.value);
+
+  if (nextSelection.has(notificationId)) {
+    nextSelection.delete(notificationId);
+  } else {
+    nextSelection.add(notificationId);
+  }
+
+  selectedNotificationIds.value = nextSelection;
+
+  if (nextSelection.size === 0) {
+    selectionMode.value = false;
+  }
+};
+
+const selectAllVisibleNotifications = () => {
+  selectedNotificationIds.value = new Set(notifications.value.map((notification) => notification.id));
+  selectionMode.value = true;
+};
+
+const handleDeleteSelected = async () => {
+  const notificationIds = Array.from(selectedNotificationIds.value);
+
+  if (notificationIds.length === 0) {
+    showBatchDeleteDialog.value = false;
+    return;
+  }
+
+  try {
+    isDeletingSelected.value = true;
+    const response = await fetch('/api/notifications', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ notificationIds }),
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(errorData.error || 'Failed to delete selected notifications');
+    }
+
+    const result = (await response.json()) as { deletedIds?: string[] };
+    const deletedIds = result.deletedIds || notificationIds;
+
+    deletedIds.forEach((deletedId) => handleNotificationDeleted(deletedId));
+    clearSelection();
+
+    toast({
+      title: 'Notifications deleted',
+      description: `${deletedIds.length} notification${deletedIds.length === 1 ? '' : 's'} deleted.`,
+    });
+  } catch (error) {
+    console.error('Failed to delete selected notifications:', error);
+    toast({
+      title: 'Deletion failed',
+      description: error instanceof Error ? error.message : 'Unable to delete selected notifications.',
+      variant: 'destructive',
+    });
+  } finally {
+    isDeletingSelected.value = false;
+  }
+};
+
 // Handle filter changes from NotificationGroupSwitch
 const handleFilterChange = (group: string, category: string) => {
+  clearSelection();
   currentGroup.value = group;
   currentCategory.value = category;
   currentPage.value = 1; // Reset to first page
@@ -168,6 +267,7 @@ const handleNotificationIdFromRoute = (notificationId: string) => {
 // Pull to refresh handler
 const handleRefresh = async () => {
   try {
+    clearSelection();
     // Reset page to 1 and fetch fresh notifications
     currentPage.value = 1;
     await fetchNotifications(1, currentGroup.value, currentCategory.value);
@@ -230,6 +330,25 @@ watch(
     }
   },
 );
+
+watch(notifications, (currentNotifications) => {
+  if (!selectionMode.value) {
+    return;
+  }
+
+  const visibleIds = new Set(currentNotifications.map((notification) => notification.id));
+  const nextSelection = new Set(
+    Array.from(selectedNotificationIds.value).filter((notificationId) => visibleIds.has(notificationId))
+  );
+
+  if (nextSelection.size !== selectedNotificationIds.value.size) {
+    selectedNotificationIds.value = nextSelection;
+  }
+
+  if (nextSelection.size === 0) {
+    selectionMode.value = false;
+  }
+});
 </script>
 
 <template>
@@ -250,6 +369,27 @@ watch(
               @filterChange="handleFilterChange"
             />
 
+            <div v-if="hasNotifications" class="hidden md:flex items-center justify-end gap-2 mb-3">
+              <template v-if="selectionMode">
+                <span class="mr-auto text-sm font-medium text-muted-foreground">{{ selectedCount }} selected</span>
+                <Button variant="ghost" size="sm" @click="selectAllVisibleNotifications">Select all</Button>
+                <Button variant="ghost" size="sm" @click="clearSelection">Cancel</Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  :disabled="selectedCount === 0 || isDeletingSelected"
+                  @click="showBatchDeleteDialog = true"
+                >
+                  <Icon icon="mdi:delete" class="mr-1.5 h-4 w-4" />
+                  Delete
+                </Button>
+              </template>
+              <Button v-else variant="outline" size="sm" @click="enterSelectionMode()">
+                <Icon icon="mdi:checkbox-multiple-marked-outline" class="mr-1.5 h-4 w-4" />
+                Select
+              </Button>
+            </div>
+
             <div class="notification-content">
               <template v-if="!initialLoading">
                 <div v-if="notifications.length > 0" class="space-y-4" id="notification-list">
@@ -257,7 +397,12 @@ watch(
                     v-for="notification in notifications"
                     :key="notification.id"
                     :notification="notification"
+                    :selection-enabled="true"
+                    :selection-mode="selectionMode"
+                    :selected="selectedNotificationIds.has(notification.id)"
                     @deleted="handleNotificationDeleted"
+                    @selection-start="enterSelectionMode"
+                    @selection-toggle="toggleNotificationSelection"
                   />
                 </div>
                 <Card v-else>
@@ -285,6 +430,15 @@ watch(
         </CardContent>
       </Card>
     </div>
+    <DeleteConfirmationDialog
+      :isOpen="showBatchDeleteDialog"
+      title="Delete selected notifications"
+      :description="selectedDeleteDescription"
+      confirmLabel="Delete"
+      @confirm="handleDeleteSelected"
+      @cancel="showBatchDeleteDialog = false"
+      @update:isOpen="(value) => (showBatchDeleteDialog = value)"
+    />
   </div>
 </template>
 

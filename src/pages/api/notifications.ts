@@ -5,6 +5,22 @@ import { getDb } from '@/db';
 import { NotificationService } from '@/services/notificationService';
 import { StreamService } from '@/services/streamService';
 
+async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+  try {
+    return await request.json();
+  } catch {
+    return {};
+  }
+}
+
+function getNotificationIdsFromBody(body: Record<string, unknown>): string[] {
+  if (!Array.isArray(body.notificationIds)) {
+    return [];
+  }
+
+  return body.notificationIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
 export const GET: APIRoute = async (context) => {
   try {
     const session = await getSessionFromContext(context);
@@ -74,8 +90,10 @@ export const DELETE: APIRoute = async (context) => {
     const userEmail = session.user.email;
     const url = new URL(context.request.url);
     const notificationId = url.searchParams.get('id');
+    const body = await readJsonBody(context.request);
+    const notificationIds = getNotificationIdsFromBody(body);
 
-    if (!notificationId) {
+    if (!notificationId && notificationIds.length === 0) {
       return new Response(JSON.stringify({ error: 'Notification ID is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -84,8 +102,30 @@ export const DELETE: APIRoute = async (context) => {
 
     const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
+    const streamService = new StreamService();
 
-    const deletedNotification = await notificationService.deleteNotification(notificationId, userEmail);
+    if (notificationIds.length > 0) {
+      const deletedIds = await notificationService.deleteNotifications(notificationIds, userEmail);
+
+      if (deletedIds.length === 0) {
+        return new Response(JSON.stringify({ error: 'Notifications not found or already deleted' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      await Promise.all(deletedIds.map((deletedId) => streamService.sendDeleteNotificationEvent(userEmail, deletedId)));
+
+      return new Response(JSON.stringify({
+        message: 'Notifications deleted successfully',
+        deletedIds,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const deletedNotification = await notificationService.deleteNotification(notificationId!, userEmail);
 
     if (!deletedNotification) {
       return new Response(JSON.stringify({ error: 'Notification not found or already deleted' }), {
@@ -94,11 +134,12 @@ export const DELETE: APIRoute = async (context) => {
       });
     }
 
-    const streamService = new StreamService();
-    await streamService.sendDeleteNotificationEvent(userEmail, notificationId);
+    await streamService.sendDeleteNotificationEvent(userEmail, notificationId!);
 
     return new Response(JSON.stringify({
       message: 'Notification deleted successfully',
+      deletedId: notificationId!,
+      deletedIds: [notificationId!],
       notification: deletedNotification
     }), {
       status: 200,
