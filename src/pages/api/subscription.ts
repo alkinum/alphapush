@@ -4,7 +4,16 @@ import { getSessionFromContext } from '@/lib/auth';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
+import { defaultPreferences } from '@/services/userPreferenceService';
+import { validateBarkTarget } from '@/services/barkFallbackService';
 import { logger } from '@/utils/logger';
+
+interface BarkFallbackConfigInput {
+  enabled?: boolean;
+  always?: boolean;
+  serverUrl?: string;
+  deviceKey?: string;
+}
 
 // Helper function: Validate SHA256 hash
 function isValidSHA256(hash: string): boolean {
@@ -12,7 +21,76 @@ function isValidSHA256(hash: string): boolean {
   return sha256Regex.test(hash);
 }
 
+function getSubscriptionEndpoint(subscription: unknown): string | null {
+  if (!subscription || typeof subscription !== 'object') {
+    return null;
+  }
+
+  const endpoint = (subscription as { endpoint?: unknown }).endpoint;
+  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function parseStoredSubscriptionEndpoint(subscription: string): string | null {
+  try {
+    return getSubscriptionEndpoint(JSON.parse(subscription));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeBarkFallbackConfig(input?: BarkFallbackConfigInput) {
+  if (!input) {
+    return {};
+  }
+
+  const enabled = input.enabled === true;
+  const always = input.always === true;
+  const serverUrl = typeof input.serverUrl === 'string' && input.serverUrl.trim()
+    ? input.serverUrl.trim()
+    : defaultPreferences.barkServerUrl;
+  const deviceKey = typeof input.deviceKey === 'string' ? input.deviceKey.trim() : '';
+
+  if (enabled) {
+    const validation = validateBarkTarget({
+      barkServerUrl: serverUrl,
+      barkDeviceKey: deviceKey,
+    });
+
+    if (!validation.isValid) {
+      throw new Error(validation.error);
+    }
+
+    return {
+      barkFallbackEnabled: true,
+      barkFallbackAlways: always,
+      barkServerUrl: validation.serverUrl,
+      barkDeviceKey: validation.deviceKey,
+    };
+  }
+
+  return {
+    barkFallbackEnabled: false,
+    barkFallbackAlways: false,
+    barkServerUrl: serverUrl,
+    barkDeviceKey: deviceKey,
+  };
+}
+
 const STALE_SUBSCRIPTION_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_NO_ACK_FAILURE_THRESHOLD = 3;
+
+type SubscriptionEnv = typeof env & {
+  PUSH_NO_ACK_FAILURE_THRESHOLD?: string;
+};
+
+const subscriptionEnv = env as SubscriptionEnv;
 
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -46,11 +124,20 @@ export const GET: APIRoute = async (context) => {
       const hasRecentSeen = !!lastSeenAt && now - lastSeenAt < STALE_SUBSCRIPTION_THRESHOLD_MS;
       const hasRecentSuccess = !!lastSuccessAt && now - lastSuccessAt < STALE_SUBSCRIPTION_THRESHOLD_MS;
       const isStale = !hasRecentSeen && !hasRecentSuccess;
-      const isFailing = failureCount >= 3 && (!lastSuccessAt || (!!lastFailureAt && lastFailureAt >= lastSuccessAt));
+      const noAckCount = subscription.noAckCount || 0;
+      const noAckThreshold = Number(subscriptionEnv.PUSH_NO_ACK_FAILURE_THRESHOLD || DEFAULT_NO_ACK_FAILURE_THRESHOLD);
+      const isFailing =
+        (failureCount >= 3 && (!lastSuccessAt || (!!lastFailureAt && lastFailureAt >= lastSuccessAt))) ||
+        noAckCount >= noAckThreshold;
 
       return {
         id: subscription.id,
         isSafari: !!subscription.isSafari,
+        barkFallbackEnabled: !!subscription.barkFallbackEnabled,
+        hasBarkDeviceKey: !!subscription.barkDeviceKey,
+        noAckCount,
+        lastNoAckAt: subscription.lastNoAckAt,
+        lastAckAt: subscription.lastAckAt,
         lastSeenAt: subscription.lastSeenAt,
         lastSuccessAt: subscription.lastSuccessAt,
         lastFailureAt: subscription.lastFailureAt,
@@ -96,15 +183,62 @@ export const PUT: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
-    const body = (await context.request.json()) as { subscription?: unknown; deviceFingerprint?: string; isSafari?: boolean };
-    const { subscription, deviceFingerprint, isSafari = false } = body;
+    const body = (await context.request.json()) as {
+      subscription?: unknown;
+      deviceFingerprint?: string;
+      oldEndpoint?: string;
+      isSafari?: boolean;
+      barkFallback?: BarkFallbackConfigInput;
+    };
+    const { subscription, oldEndpoint, isSafari = false } = body;
+    let { deviceFingerprint } = body;
+    const barkFallbackConfig = normalizeBarkFallbackConfig(body.barkFallback);
 
-    if (!subscription || typeof subscription !== 'object' || !deviceFingerprint) {
-      logger.warn('Invalid subscription data received:', { userEmail, hasSubscription: !!subscription, hasDeviceFingerprint: !!deviceFingerprint });
-      return new Response(JSON.stringify({ error: 'Missing or invalid subscription data or device fingerprint' }), {
+    if (!subscription || typeof subscription !== 'object') {
+      logger.warn('Invalid subscription data received:', { userEmail, hasSubscription: !!subscription });
+      return new Response(JSON.stringify({ error: 'Missing or invalid subscription data' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    const subscriptionEndpoint = getSubscriptionEndpoint(subscription);
+    if (!subscriptionEndpoint) {
+      logger.warn('Invalid subscription endpoint received:', { userEmail });
+      return new Response(JSON.stringify({ error: 'Missing or invalid subscription endpoint' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const db = getDb(env.DB);
+    let existingSubscription: typeof subscriptions.$inferSelect | undefined;
+    let userSubscriptionsCache: Array<typeof subscriptions.$inferSelect> | undefined;
+    const getUserSubscriptions = async () => {
+      if (!userSubscriptionsCache) {
+        userSubscriptionsCache = await db
+          .select()
+          .from(subscriptions)
+          .where(eq(subscriptions.userEmail, userEmail))
+          .all();
+      }
+
+      return userSubscriptionsCache;
+    };
+
+    if (!deviceFingerprint && oldEndpoint) {
+      const userSubscriptions = await getUserSubscriptions();
+      existingSubscription = userSubscriptions.find((storedSubscription) => {
+        return parseStoredSubscriptionEndpoint(storedSubscription.subscription) === oldEndpoint;
+      });
+
+      if (existingSubscription) {
+        deviceFingerprint = existingSubscription.deviceFingerprint;
+      }
+    }
+
+    if (!deviceFingerprint) {
+      deviceFingerprint = await sha256Hex(`push-endpoint:${subscriptionEndpoint}`);
     }
 
     // Validate device fingerprint as a valid SHA256 hash
@@ -117,27 +251,35 @@ export const PUT: APIRoute = async (context) => {
     }
 
     logger.debug('Processing subscription update:', { userEmail, deviceFingerprint, isSafari });
-    const db = getDb(env.DB);
 
-    const existingSubscription = await db
+    existingSubscription = existingSubscription || await db
       .select()
       .from(subscriptions)
       .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.deviceFingerprint, deviceFingerprint)))
       .get();
+
+    if (!existingSubscription) {
+      const userSubscriptions = await getUserSubscriptions();
+      existingSubscription = userSubscriptions.find((storedSubscription) => {
+        return parseStoredSubscriptionEndpoint(storedSubscription.subscription) === subscriptionEndpoint;
+      });
+    }
 
     if (existingSubscription) {
       logger.debug('Updating existing subscription:', { userEmail, deviceFingerprint, isSafari });
       const result = await db
         .update(subscriptions)
         .set({
+          deviceFingerprint,
           subscription: JSON.stringify(subscription),
           isSafari: isSafari,
           lastSeenAt: new Date(),
           failureCount: 0,
           lastStatusCode: null,
+          ...barkFallbackConfig,
           updatedAt: new Date(),
         })
-        .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.deviceFingerprint, deviceFingerprint)))
+        .where(and(eq(subscriptions.userEmail, userEmail), eq(subscriptions.id, existingSubscription.id)))
         .returning({ updatedAt: subscriptions.updatedAt })
         .get();
 
@@ -159,6 +301,7 @@ export const PUT: APIRoute = async (context) => {
           subscription: JSON.stringify(subscription),
           isSafari: isSafari,
           lastSeenAt: new Date(),
+          ...barkFallbackConfig,
         })
         .returning({ createdAt: subscriptions.createdAt })
         .get();

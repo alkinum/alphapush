@@ -171,6 +171,7 @@ const isApprovalProcess = computed(() => props.notification.type === 'approval-p
 const approvalState = ref(props.notification.approvalState);
 
 const showApprovalButtons = computed(() => isApprovalProcess.value && approvalState.value === 'pending');
+const isUnread = computed(() => !props.notification.readAt);
 
 const handleApprove = async () => {
   await updateApprovalState('approved');
@@ -323,6 +324,7 @@ const handleCancelDelete = () => {
         swiped: isSwiped,
         deleting: props.notification.isDeleting,
         'new-notification': props.notification.isNew,
+        'unread-notification': isUnread,
       }"
       @click="handleSwipeReset"
     >
@@ -338,7 +340,14 @@ const handleCancelDelete = () => {
               />
             </div>
             <div class="flex-grow">
-              <CardTitle>{{ displayTitle }}</CardTitle>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="isUnread"
+                  class="h-2 w-2 flex-shrink-0 rounded-full bg-primary"
+                  aria-label="Unread notification"
+                ></span>
+                <CardTitle>{{ displayTitle }}</CardTitle>
+              </div>
               <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
                 {{ props.notification.subtitle }}
               </p>
@@ -593,6 +602,10 @@ const handleCancelDelete = () => {
 
 .notification-card.new-notification {
   animation: slide-in 0.5s ease-out;
+}
+
+.notification-card.unread-notification .border {
+  border-color: hsl(var(--primary) / 0.5);
 }
 
 @keyframes slide-in {

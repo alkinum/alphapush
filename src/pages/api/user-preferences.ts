@@ -11,7 +11,6 @@ const preferenceKeys = new Set<keyof UserPreference>([
   'barkFallbackEnabled',
   'barkFallbackAlways',
   'barkServerUrl',
-  'barkDeviceKey',
 ]);
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -85,31 +84,17 @@ function normalizePreferencePatch(rawPreferences: unknown): PreferencePatch {
       case 'barkServerUrl':
         normalized.barkServerUrl = normalizeBarkServerUrl(value);
         break;
-      case 'barkDeviceKey': {
-        if (typeof value !== 'string') {
-          throw new Error('Bark device key must be a string');
-        }
-
-        const deviceKey = value.trim();
-        if (deviceKey.length > 256) {
-          throw new Error('Bark device key is too long');
-        }
-
-        normalized.barkDeviceKey = deviceKey;
-        break;
-      }
     }
   }
 
-  const wantsBarkEnabled =
-    normalized.barkFallbackEnabled === true ||
-    ((rawPreferences as Partial<UserPreference>).barkFallbackEnabled === true);
-  const deviceKey = normalized.barkDeviceKey;
-  if (wantsBarkEnabled && deviceKey !== undefined && deviceKey.length === 0) {
-    throw new Error('Bark device key is required when fallback is enabled');
-  }
-
   return normalized;
+}
+
+function sanitizePreferencesForResponse(preferences: UserPreference): UserPreference {
+  return {
+    ...preferences,
+    barkDeviceKey: '',
+  };
 }
 
 export const GET: APIRoute = async (context) => {
@@ -126,7 +111,7 @@ export const GET: APIRoute = async (context) => {
     // Get user preferences
     const preferences = await userPreferenceService.getUserPreferences(session.user.email);
 
-    return jsonResponse({ preferences });
+    return jsonResponse({ preferences: sanitizePreferencesForResponse(preferences) });
   } catch (error) {
     console.error('Error getting user preferences:', error);
     return jsonResponse({ error: 'Internal server error' }, 500);
@@ -152,7 +137,7 @@ export const POST: APIRoute = async (context) => {
     // Update user preferences
     const updatedPreferences = await userPreferenceService.updateUserPreferences(session.user.email, normalizedPreferences);
 
-    return jsonResponse({ preferences: updatedPreferences });
+    return jsonResponse({ preferences: sanitizePreferencesForResponse(updatedPreferences) });
   } catch (error) {
     console.error('Error updating user preferences:', error);
     const message = error instanceof Error ? error.message : 'Internal server error';
@@ -186,7 +171,7 @@ export const PUT: APIRoute = async (context) => {
     const normalizedValue = normalizedPreferences[key] as UserPreference[typeof key];
     const updatedPreferences = await userPreferenceService.syncPreference(session.user.email, key, normalizedValue);
 
-    return jsonResponse({ preferences: updatedPreferences });
+    return jsonResponse({ preferences: sanitizePreferencesForResponse(updatedPreferences) });
   } catch (error) {
     console.error('Error syncing user preference:', error);
     const message = error instanceof Error ? error.message : 'Internal server error';

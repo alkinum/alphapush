@@ -116,6 +116,7 @@ export const pushNotifications = sqliteTable('push_notifications', {
   barkFallbackSentAt: integer('bark_fallback_sent_at', { mode: 'timestamp' }),
   barkFallbackReason: text('bark_fallback_reason'),
   barkFallbackError: text('bark_fallback_error'),
+  readAt: integer('read_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -133,6 +134,37 @@ export const subscriptions = sqliteTable('subscriptions', {
   lastFailureAt: integer('last_failure_at', { mode: 'timestamp' }),
   failureCount: integer('failure_count').default(0),
   lastStatusCode: integer('last_status_code'),
+  barkFallbackEnabled: integer('bark_fallback_enabled', { mode: 'boolean' }).default(false),
+  barkFallbackAlways: integer('bark_fallback_always', { mode: 'boolean' }).default(false),
+  barkServerUrl: text('bark_server_url'),
+  barkDeviceKey: text('bark_device_key'),
+  noAckCount: integer('no_ack_count').default(0),
+  lastNoAckAt: integer('last_no_ack_at', { mode: 'timestamp' }),
+  lastAckAt: integer('last_ack_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+});
+
+export const pushDeliveryAttempts = sqliteTable('push_delivery_attempts', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  notificationId: text('notification_id')
+    .notNull()
+    .references(() => pushNotifications.id, { onDelete: 'cascade' }),
+  subscriptionId: text('subscription_id')
+    .notNull()
+    .references(() => subscriptions.id, { onDelete: 'cascade' }),
+  userEmail: text('user_email').notNull(),
+  sentAt: integer('sent_at', { mode: 'timestamp' }).notNull(),
+  ackDeadlineAt: integer('ack_deadline_at', { mode: 'timestamp' }).notNull(),
+  displayedAt: integer('displayed_at', { mode: 'timestamp' }),
+  openedAt: integer('opened_at', { mode: 'timestamp' }),
+  ackedAt: integer('acked_at', { mode: 'timestamp' }),
+  fallbackSentAt: integer('fallback_sent_at', { mode: 'timestamp' }),
+  fallbackReason: text('fallback_reason'),
+  fallbackError: text('fallback_error'),
+  status: text('status').notNull().default('pending'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });
@@ -182,5 +214,20 @@ export const pushNotificationsRelations = relations(pushNotifications, ({ one })
   group: one(groups, {
     fields: [pushNotifications.groupId],
     references: [groups.id],
+  }),
+}));
+
+export const subscriptionsRelations = relations(subscriptions, ({ many }) => ({
+  deliveryAttempts: many(pushDeliveryAttempts),
+}));
+
+export const pushDeliveryAttemptsRelations = relations(pushDeliveryAttempts, ({ one }) => ({
+  notification: one(pushNotifications, {
+    fields: [pushDeliveryAttempts.notificationId],
+    references: [pushNotifications.id],
+  }),
+  subscription: one(subscriptions, {
+    fields: [pushDeliveryAttempts.subscriptionId],
+    references: [subscriptions.id],
   }),
 }));

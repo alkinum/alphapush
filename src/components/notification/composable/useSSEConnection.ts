@@ -107,6 +107,10 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
           const messageEvent = event as unknown as MessageEvent;
           const notification = JSON.parse(messageEvent.data);
 
+          document.dispatchEvent(new CustomEvent('alphapush:new-notification', {
+            detail: { notification }
+          }));
+
           if (handlers.onNewNotification) {
             handlers.onNewNotification(notification);
           }

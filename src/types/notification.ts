@@ -22,6 +22,8 @@ export interface Notification {
   barkFallbackSentAt?: Date | null;
   barkFallbackReason?: string | null;
   barkFallbackError?: string | null;
+  readAt?: Date | null;
+  badgeCount?: number;
 }
 
 export interface NotificationGroup {

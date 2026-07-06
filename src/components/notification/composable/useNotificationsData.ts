@@ -103,6 +103,29 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
   };
 
   /**
+   * Update local read state after badge/read synchronization.
+   */
+  const markNotificationsReadLocally = (
+    notificationIds: string[] | undefined,
+    readAt: string | Date,
+    all = false
+  ) => {
+    const readAtDate = readAt instanceof Date ? readAt : new Date(readAt);
+    const notificationIdSet = new Set(notificationIds || []);
+
+    notifications.value = notifications.value.map((notification) => {
+      if (all || notificationIdSet.has(notification.id)) {
+        return {
+          ...notification,
+          readAt: notification.readAt || readAtDate,
+        };
+      }
+
+      return notification;
+    });
+  };
+
+  /**
    * Handle a new notification
    */
   const handleNewNotification = (
@@ -253,9 +276,10 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
     loadMoreNotifications,
     retryFetchNotifications,
     handleNotificationDeleted,
+    markNotificationsReadLocally,
     handleNewNotification,
     handleUpdateNotification,
     fetchNotificationById,
     highlightNotification
   };
-} 
+}

@@ -13,20 +13,25 @@ export function initializeDeliveryReceipts(): void {
 
 function reportOpenedNotificationFromPage(): void {
   const notificationId = document.body.dataset.notificationId;
+  const subscriptionId = document.body.dataset.subscriptionId;
   if (!notificationId) {
     return;
   }
 
-  const storageKey = `${OPENED_RECEIPT_STORAGE_PREFIX}${notificationId}`;
+  const storageKey = `${OPENED_RECEIPT_STORAGE_PREFIX}${notificationId}:${subscriptionId || 'unknown'}`;
   if (sessionStorage.getItem(storageKey)) {
     return;
   }
 
   sessionStorage.setItem(storageKey, String(Date.now()));
-  void reportDeliveryEvent(notificationId, 'opened');
+  void reportDeliveryEvent(notificationId, 'opened', subscriptionId);
 }
 
-async function reportDeliveryEvent(notificationId: string, event: DeliveryEvent): Promise<void> {
+async function reportDeliveryEvent(
+  notificationId: string,
+  event: DeliveryEvent,
+  subscriptionId?: string
+): Promise<void> {
   try {
     await fetch('/api/push-delivery', {
       method: 'POST',
@@ -34,7 +39,7 @@ async function reportDeliveryEvent(notificationId: string, event: DeliveryEvent)
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ notificationId, event }),
+      body: JSON.stringify({ notificationId, subscriptionId, event }),
     });
   } catch (error) {
     console.debug('Failed to report notification delivery event:', error);

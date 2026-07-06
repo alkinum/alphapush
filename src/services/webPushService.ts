@@ -1,6 +1,6 @@
 import { buildPushPayload, type PushSubscription, type PushMessage, type VapidKeys } from '@block65/webcrypto-web-push';
 
-const DEFAULT_PUSH_TTL_SECONDS = 60 * 60 * 24;
+const DEFAULT_PUSH_TTL_SECONDS = 60 * 60 * 24 * 28;
 
 export class WebPushService {
   private vapid: VapidKeys;

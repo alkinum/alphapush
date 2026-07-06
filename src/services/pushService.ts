@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
@@ -7,14 +7,13 @@ import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import { StreamService } from '@/services/streamService';
-import { BarkFallbackService, type BarkFallbackResult } from '@/services/barkFallbackService';
-import { UserPreferenceService } from '@/services/userPreferenceService';
+import { DeliveryRetryService } from '@/services/deliveryRetryService';
 import type { Notification } from '@/types/notification';
 import { isLocalNetworkUrl } from '@/utils/network';
 import { logger } from '@/utils/logger';
 
 export const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
-const DEFAULT_PUSH_TTL_SECONDS = 60 * 60 * 24;
+const DEFAULT_PUSH_TTL_SECONDS = 60 * 60 * 24 * 28;
 
 export interface PushResult {
   success: boolean;
@@ -27,8 +26,6 @@ export interface PushResult {
   barkFallbackReason?: string;
   barkFallbackError?: string;
 }
-
-type BarkFallbackAttempt = BarkFallbackResult & { reason: string };
 
 /**
  * Checks if a webhook URL is valid and not a local network URL.
@@ -135,6 +132,8 @@ export class PushService {
       approvalId?: string;
       tempAccessToken?: string;
       approvalState?: string;
+      badgeCount?: number;
+      subscriptionId?: string;
     } = {}
   ): string {
     // Get the app URL from environment, fallback to current origin
@@ -150,6 +149,10 @@ export class PushService {
     // Add all notification data as query parameters (matching sw.js data fields)
     url.searchParams.set('id', notification.id); // Maps to notificationData.id
     url.searchParams.set('notificationId', notification.id);
+
+    if (options.subscriptionId) {
+      url.searchParams.set('subscriptionId', options.subscriptionId);
+    }
 
     if (notification.categoryId) {
       url.searchParams.set('categoryId', notification.categoryId);
@@ -177,6 +180,10 @@ export class PushService {
       url.searchParams.set('tempAccessToken', options.tempAccessToken);
     }
 
+    if (typeof options.badgeCount === 'number') {
+      url.searchParams.set('badgeCount', String(options.badgeCount));
+    }
+
     if (notification.extraInfo) {
       url.searchParams.set('extraInfo', notification.extraInfo);
     }
@@ -196,6 +203,9 @@ export class PushService {
       // Create URLs for approve and reject actions
       const approveUrl = new URL(fullBaseUrl);
       approveUrl.searchParams.set('id', notification.id);
+      if (options.subscriptionId) {
+        approveUrl.searchParams.set('subscriptionId', options.subscriptionId);
+      }
       approveUrl.searchParams.set('approvalId', options.approvalId);
       approveUrl.searchParams.set('action', 'approve');
       approveUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
@@ -211,6 +221,9 @@ export class PushService {
 
       const rejectUrl = new URL(fullBaseUrl);
       rejectUrl.searchParams.set('id', notification.id);
+      if (options.subscriptionId) {
+        rejectUrl.searchParams.set('subscriptionId', options.subscriptionId);
+      }
       rejectUrl.searchParams.set('approvalId', options.approvalId);
       rejectUrl.searchParams.set('action', 'reject');
       rejectUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
@@ -241,6 +254,9 @@ export class PushService {
       const detailUrl = new URL(fullBaseUrl);
       detailUrl.searchParams.set('id', notification.id);
       detailUrl.searchParams.set('notificationId', notification.id);
+      if (options.subscriptionId) {
+        detailUrl.searchParams.set('subscriptionId', options.subscriptionId);
+      }
       detailUrl.searchParams.set('action', 'detail');
       if (notification.type) {
         detailUrl.searchParams.set('type', notification.type);
@@ -274,6 +290,7 @@ export class PushService {
         // Include data field matching sw.js notification data structure
         data: {
           id: notification.id,
+          subscriptionId: options.subscriptionId,
           category: notification.categoryId,
           notification_group: notification.groupId,
           type: notification.type,
@@ -283,6 +300,7 @@ export class PushService {
           navigateUrl: notification.navigate_url,
           extraInfo: notification.extraInfo,
           approvalState: options.approvalState,
+          badgeCount: options.badgeCount,
         },
         actions,
       },
@@ -302,69 +320,14 @@ export class PushService {
       .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)));
   }
 
-  private async recordBarkFallbackResult(
-    notificationId: string,
-    userEmail: string,
-    reason: string,
-    result: BarkFallbackResult
-  ): Promise<void> {
-    const now = new Date();
-    const updateData = result.sent
-      ? {
-        barkFallbackSentAt: now,
-        barkFallbackReason: reason,
-        barkFallbackError: null,
-        updatedAt: now,
-      }
-      : {
-        barkFallbackReason: reason,
-        barkFallbackError: result.error || 'Bark fallback failed',
-        updatedAt: now,
-      };
+  private async getUnreadCount(userEmail: string): Promise<number> {
+    const result = await this.db
+      .select({ count: sql`COUNT(*)` })
+      .from(pushNotifications)
+      .where(and(eq(pushNotifications.userEmail, userEmail), isNull(pushNotifications.readAt)))
+      .get();
 
-    await this.db
-      .update(pushNotifications)
-      .set(updateData)
-      .where(and(eq(pushNotifications.id, notificationId), eq(pushNotifications.userEmail, userEmail)));
-  }
-
-  private async maybeSendBarkFallback(
-    userEmail: string,
-    notification: Notification,
-    options: {
-      urgency?: 'normal' | 'high';
-    },
-    successfulPushes: number,
-    subscriptionCount: number
-  ): Promise<BarkFallbackAttempt | null> {
-    const preferenceService = new UserPreferenceService(this.env.DB);
-    const preferences = await preferenceService.getUserPreferences(userEmail);
-
-    if (!preferences.barkFallbackEnabled) {
-      return null;
-    }
-
-    const shouldSendFallback = preferences.barkFallbackAlways || successfulPushes === 0;
-    if (!shouldSendFallback) {
-      return null;
-    }
-
-    const reason = preferences.barkFallbackAlways
-      ? 'always'
-      : subscriptionCount === 0
-        ? 'no-web-push-subscriptions'
-        : 'web-push-not-delivered';
-
-    const barkFallbackService = new BarkFallbackService(this.env.APP_URL);
-    const result = await barkFallbackService.sendFallback(preferences, notification, options);
-
-    try {
-      await this.recordBarkFallbackResult(notification.id, userEmail, reason, result);
-    } catch (error) {
-      logger.error(`Failed to record Bark fallback result for notification ${notification.id}:`, error);
-    }
-
-    return { ...result, reason };
+    return Number(result?.count || 0);
   }
 
   /**
@@ -383,6 +346,7 @@ export class PushService {
       approvalState?: string;
       topic?: string;
       urgency?: 'normal' | 'high';
+      badgeCount?: number;
     } = {}
   ): Promise<PushResult> {
     logger.debug(`Sending push notifications for user: ${user.email}`, {
@@ -404,21 +368,68 @@ export class PushService {
       const failedPushes: Array<{ subscriptionId: string; reason: string }> = [];
       const webPushService = new WebPushService(user.publicKey, user.privateKey, `mailto:${user.email}`);
       const subscriptionService = new SubscriptionService(this.env.DB);
+      const deliveryRetryService = new DeliveryRetryService(this.db, this.env);
       const subscriptionsToRemove: string[] = [];
       let successfulPushes = 0;
+      let barkFallbackSent = false;
+      let barkFallbackReason: string | undefined;
+      let barkFallbackError: string | undefined;
+      const badgeCount = options.badgeCount ?? await this.getUnreadCount(user.email);
+
+      const sendDeviceFallback = async (
+        sub: typeof subscriptions.$inferSelect,
+        reason: string
+      ): Promise<void> => {
+        if (!sub.barkFallbackEnabled || !sub.barkDeviceKey) {
+          return;
+        }
+
+        try {
+          const attempt = await deliveryRetryService.createAttempt({
+            notificationId: notification.id,
+            subscriptionId: sub.id,
+            userEmail: user.email,
+          });
+          const sent = await deliveryRetryService.sendFallbackForAttempt(
+            attempt.id,
+            notification,
+            sub,
+            reason,
+            { urgency: options.urgency }
+          );
+
+          if (sent) {
+            barkFallbackSent = true;
+            barkFallbackReason ||= reason;
+            barkFallbackError = undefined;
+          } else if (!barkFallbackSent) {
+            barkFallbackReason ||= reason;
+            barkFallbackError ||= 'Bark fallback failed';
+          }
+        } catch (error) {
+          logger.error(`Failed to send Bark fallback for subscription ${sub.id}:`, error);
+          if (!barkFallbackSent) {
+            barkFallbackReason ||= reason;
+            barkFallbackError ||= error instanceof Error ? error.message : 'Bark fallback failed';
+          }
+        }
+      };
 
       // Send notifications to all subscriptions
       for (const sub of userSubscriptions) {
         const subscription: PushSubscription = JSON.parse(sub.subscription);
+        const deliveryOptions = { ...options, badgeCount, subscriptionId: sub.id };
 
         // Format message based on subscription type (Safari vs standard)
         const message = sub.isSafari
-          ? this.formatSafariMessage(notification, options)
+          ? this.formatSafariMessage(notification, deliveryOptions)
           : JSON.stringify({
             ...notification,
             approvalState: options.approvalState,
             approvalId: options.approvalId,
             tempAccessToken: options.tempAccessToken,
+            badgeCount,
+            subscriptionId: sub.id,
           });
 
         // Check message size
@@ -428,6 +439,7 @@ export class PushService {
             subscriptionId: sub.id,
             reason: 'Message size exceeds 4KB limit',
           });
+          await sendDeviceFallback(sub, 'web-push-message-too-large');
           continue;
         }
 
@@ -438,8 +450,58 @@ export class PushService {
             topic: options.topic || 'Default',
             urgency: options.urgency || 'normal',
           });
-          successfulPushes += 1;
+        } catch (error) {
+          logger.error(`Failed to send push notification to subscription ${sub.id}:`, error);
+          failedPushes.push({
+            subscriptionId: sub.id,
+            reason: (error as Error).message,
+          });
 
+          const statusCode = getPushErrorStatusCode(error);
+
+          await sendDeviceFallback(
+            sub,
+            statusCode === 404 || statusCode === 410
+              ? 'web-push-subscription-expired'
+              : 'web-push-send-failed'
+          );
+
+          if (statusCode === 404 || statusCode === 410) {
+            subscriptionsToRemove.push(sub.id);
+          } else {
+            try {
+              await this.db
+                .update(subscriptions)
+                .set({
+                  lastFailureAt: new Date(),
+                  lastStatusCode: statusCode,
+                  failureCount: (sub.failureCount || 0) + 1,
+                  updatedAt: new Date(),
+                })
+                .where(eq(subscriptions.id, sub.id));
+            } catch (updateError) {
+              logger.error(`Failed to update subscription failure state for ${sub.id}:`, updateError);
+            }
+          }
+
+          continue;
+        }
+
+        successfulPushes += 1;
+
+        let attemptId: string | undefined;
+        try {
+          const attempt = await deliveryRetryService.createAttempt({
+            notificationId: notification.id,
+            subscriptionId: sub.id,
+            userEmail: user.email,
+          });
+          attemptId = attempt.id;
+        } catch (error) {
+          logger.error(`Failed to create delivery attempt for subscription ${sub.id}:`, error);
+        }
+
+        try {
           await this.db
             .update(subscriptions)
             .set({
@@ -450,26 +512,34 @@ export class PushService {
             })
             .where(eq(subscriptions.id, sub.id));
         } catch (error) {
-          logger.error(`Failed to send push notification to subscription ${sub.id}:`, error);
-          failedPushes.push({
-            subscriptionId: sub.id,
-            reason: (error as Error).message,
-          });
+          logger.error(`Failed to update subscription success state for ${sub.id}:`, error);
+        }
 
-          const statusCode = getPushErrorStatusCode(error);
+        try {
+          if (attemptId && await deliveryRetryService.shouldSendImmediateFallback(sub)) {
+            const reason = sub.barkFallbackAlways ? 'always' : 'subscription-unhealthy';
+            const sent = await deliveryRetryService.sendFallbackForAttempt(
+              attemptId,
+              notification,
+              sub,
+              reason,
+              { urgency: options.urgency }
+            );
 
-          if (statusCode === 404 || statusCode === 410) {
-            subscriptionsToRemove.push(sub.id);
-          } else {
-            await this.db
-              .update(subscriptions)
-              .set({
-                lastFailureAt: new Date(),
-                lastStatusCode: statusCode,
-                failureCount: (sub.failureCount || 0) + 1,
-                updatedAt: new Date(),
-              })
-              .where(eq(subscriptions.id, sub.id));
+            if (sent) {
+              barkFallbackSent = true;
+              barkFallbackReason ||= reason;
+              barkFallbackError = undefined;
+            } else if (!barkFallbackSent) {
+              barkFallbackReason ||= reason;
+              barkFallbackError ||= 'Bark fallback failed';
+            }
+          }
+        } catch (error) {
+          logger.error(`Failed to send immediate Bark fallback for subscription ${sub.id}:`, error);
+          if (!barkFallbackSent) {
+            barkFallbackReason ||= sub.barkFallbackAlways ? 'always' : 'subscription-unhealthy';
+            barkFallbackError ||= error instanceof Error ? error.message : 'Bark fallback failed';
           }
         }
       }
@@ -493,14 +563,6 @@ export class PushService {
         }
       }
 
-      const barkFallbackResult = await this.maybeSendBarkFallback(
-        user.email,
-        notification,
-        { urgency: options.urgency },
-        successfulPushes,
-        userSubscriptions.length
-      );
-
       // Always send server-sent event for new notifications
       try {
         await this.streamService.sendNewNotificationEvent(user.email, notification, {
@@ -520,13 +582,13 @@ export class PushService {
         });
       }
 
-      const deliverySucceeded = successfulPushes > 0 || barkFallbackResult?.sent === true;
+      const deliverySucceeded = successfulPushes > 0 || barkFallbackSent;
       if (!deliverySucceeded) {
-        const error = getNoDeliveryError(userSubscriptions.length, failedPushes, barkFallbackResult);
+        const error = getNoDeliveryError(userSubscriptions.length, failedPushes, barkFallbackError);
         logger.warn(`No push delivery channel succeeded for notification: ${notification.id}`, {
           totalCount: userSubscriptions.length,
           failedCount: failedPushes.length,
-          barkFallbackError: barkFallbackResult?.error,
+          barkFallbackError,
         });
 
         return {
@@ -536,16 +598,16 @@ export class PushService {
           failedPushes,
           notificationId: notification.id,
           approvalId: options.approvalId,
-          barkFallbackSent: barkFallbackResult?.sent,
-          barkFallbackReason: barkFallbackResult?.reason,
-          barkFallbackError: barkFallbackResult?.error,
+          barkFallbackSent,
+          barkFallbackReason,
+          barkFallbackError,
         };
       }
 
       logger.debug(`Push delivery succeeded for notification: ${notification.id}`, {
         successfulPushes,
         failedPushes: failedPushes.length,
-        barkFallbackSent: barkFallbackResult?.sent,
+        barkFallbackSent,
       });
       return {
         success: true,
@@ -553,9 +615,9 @@ export class PushService {
         approvalId: options.approvalId,
         successfulPushes,
         failedPushes: failedPushes.length > 0 ? failedPushes : undefined,
-        barkFallbackSent: barkFallbackResult?.sent,
-        barkFallbackReason: barkFallbackResult?.reason,
-        barkFallbackError: barkFallbackResult?.error,
+        barkFallbackSent,
+        barkFallbackReason,
+        barkFallbackError,
       };
     } catch (error) {
       logger.error(`Error in push service for notification: ${notification.id}:`, error);
@@ -580,10 +642,10 @@ function getPushErrorStatusCode(error: unknown): number | null {
 function getNoDeliveryError(
   subscriptionCount: number,
   failedPushes: Array<{ subscriptionId: string; reason: string }>,
-  barkFallbackResult: BarkFallbackAttempt | null
+  barkFallbackError?: string
 ): string {
-  if (barkFallbackResult?.error) {
-    return `No Web Push delivery succeeded; Bark fallback failed: ${barkFallbackResult.error}`;
+  if (barkFallbackError) {
+    return `No Web Push delivery succeeded; Bark fallback failed: ${barkFallbackError}`;
   }
 
   if (subscriptionCount === 0) {

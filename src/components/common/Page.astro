@@ -29,6 +29,7 @@ const isMobile = isMobileDevice(userAgent);
 // Check for notificationId in URL
 const url = new URL(Astro.request.url);
 const notificationId = url.searchParams.get('notificationId');
+const subscriptionId = url.searchParams.get('subscriptionId');
 ---
 
 <html class="dark" lang="en">
@@ -51,6 +52,7 @@ const notificationId = url.searchParams.get('notificationId');
     data-user-logged-in={isLoggedIn ? 'true' : 'false'}
     data-user-email={userEmail}
     data-notification-id={notificationId || ''}
+    data-subscription-id={subscriptionId || ''}
   >
     <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />
@@ -64,9 +66,11 @@ const notificationId = url.searchParams.get('notificationId');
     <Toaster client:load />
     <PwaGuidance client:load />
     <script>
+      import { initializeAppBadgeSync } from '@/modules/appBadge';
       import { initializeDeliveryReceipts } from '@/modules/deliveryReceipts';
       import { initializeSessionKeepalive } from '@/modules/sessionKeepalive';
 
+      initializeAppBadgeSync();
       initializeDeliveryReceipts();
       initializeSessionKeepalive();
     </script>

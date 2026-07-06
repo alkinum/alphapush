@@ -15,6 +15,7 @@ const SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 // State
 let vapidPublicKey: string | null = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
 let deviceFingerprint: string | null = null;
+let droppedSubscriptionRepairPromise: Promise<boolean> | null = null;
 
 // User fingerprints map: { userEmail: fingerprint }
 interface UserFingerprints {
@@ -25,6 +26,10 @@ const { toast } = useToast();
 
 function isCurrentUserLoggedIn(): boolean {
   return document.body.dataset.userLoggedIn === 'true' && !!document.body.dataset.userEmail;
+}
+
+function hasGrantedNotificationPermission(): boolean {
+  return 'Notification' in window && Notification.permission === 'granted';
 }
 
 /**
@@ -71,7 +76,7 @@ function removeUserFingerprint(userEmail: string): void {
 /**
  * Fetch VAPID public key from the server
  */
-export async function getVapidKey(): Promise<string | null> {
+export async function getVapidKey(options: { silent?: boolean } = {}): Promise<string | null> {
   try {
     const response = await fetch('/api/vapid-keys');
     if (!response.ok) {
@@ -117,11 +122,13 @@ export async function getVapidKey(): Promise<string | null> {
     return vapidPublicKey;
   } catch (error) {
     console.error('Error fetching VAPID key:', error);
-    toast({
-      title: 'Error',
-      description: 'Failed to get push key. Please try again later.',
-      variant: 'destructive',
-    });
+    if (!options.silent) {
+      toast({
+        title: 'Error',
+        description: 'Failed to get push key. Please try again later.',
+        variant: 'destructive',
+      });
+    }
     return null;
   }
 }
@@ -200,7 +207,11 @@ async function getActiveWebPushSubscription(): Promise<PushSubscription | null> 
   }
 
   if ('serviceWorker' in navigator && 'PushManager' in window) {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) {
+      return null;
+    }
+
     return await registration.pushManager.getSubscription();
   }
 
@@ -219,7 +230,11 @@ export async function hasActiveWebPushSubscription(): Promise<boolean> {
 /**
  * Unsubscribe from web push for a specific fingerprint
  */
-export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, userEmail?: string): Promise<boolean> {
+export async function unsubscribeWebPush(
+  fingerprintToUnsubscribe?: string,
+  userEmail?: string,
+  options: { silent?: boolean } = {}
+): Promise<boolean> {
   try {
     let subscription: PushSubscription | null = null;
 
@@ -277,11 +292,13 @@ export async function unsubscribeWebPush(fingerprintToUnsubscribe?: string, user
     return true;
   } catch (error) {
     console.error('Unsubscribe web push failed:', error);
-    toast({
-      title: 'Error',
-      description: 'Failed to unsubscribe from Web Push. Please try again.',
-      variant: 'destructive',
-    });
+    if (!options.silent) {
+      toast({
+        title: 'Error',
+        description: 'Failed to unsubscribe from Web Push. Please try again.',
+        variant: 'destructive',
+      });
+    }
     return false;
   }
 }
@@ -331,7 +348,10 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ subscription, deviceFingerprint }),
+      body: JSON.stringify({
+        subscription,
+        deviceFingerprint,
+      }),
     });
 
     if (!response.ok) {
@@ -357,7 +377,7 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
  * Registers the subscription with the server using PUT method
  * Supports both Safari declarative push and service worker-based push
  */
-export async function subscribeWebPush(publicKey: string): Promise<boolean> {
+export async function subscribeWebPush(publicKey: string, options: { silent?: boolean } = {}): Promise<boolean> {
   try {
     const userEmail = document.body.getAttribute('data-user-email');
 
@@ -392,7 +412,7 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       // If fingerprint changed and we have an old one, unsubscribe it from server
       if (storedFingerprint && storedFingerprint !== newFingerprint) {
         console.debug('Fingerprint changed, unsubscribing old fingerprint');
-        await unsubscribeWebPush(storedFingerprint, userEmail);
+        await unsubscribeWebPush(storedFingerprint, userEmail, options);
       }
 
       // Subscribe only if there's no valid subscription
@@ -429,7 +449,7 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       // If fingerprint changed and we have an old one, unsubscribe it from server
       if (storedFingerprint && storedFingerprint !== newFingerprint) {
         console.debug('Fingerprint changed, unsubscribing old fingerprint');
-        await unsubscribeWebPush(storedFingerprint, userEmail);
+        await unsubscribeWebPush(storedFingerprint, userEmail, options);
       }
 
       // Subscribe only if there's no valid subscription
@@ -495,11 +515,13 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
       console.error('Failed to clean up subscription after error:', cleanupError);
     }
 
-    toast({
-      title: 'Error',
-      description: 'Push subscription failed. Please reload the app and try again.',
-      variant: 'destructive',
-    });
+    if (!options.silent) {
+      toast({
+        title: 'Error',
+        description: 'Push subscription failed. Please reload the app and try again.',
+        variant: 'destructive',
+      });
+    }
     return false;
   }
 }
@@ -509,35 +531,88 @@ export async function subscribeWebPush(publicKey: string): Promise<boolean> {
  * When forceRefresh is true, always fetches the latest VAPID key from server
  * Handles subscribing to push notifications with proper VAPID key verification
  */
-export async function initializeWebPush(forceRefresh = false): Promise<boolean> {
-  if (Notification.permission !== 'granted') {
+export async function initializeWebPush(
+  forceRefresh = false,
+  options: { silent?: boolean } = {}
+): Promise<boolean> {
+  if (!hasGrantedNotificationPermission()) {
     return false;
   }
 
   try {
     // Always fetch the latest VAPID key from server if forceRefresh is true or vapidPublicKey doesn't exist
     if (forceRefresh || !vapidPublicKey) {
-      vapidPublicKey = await getVapidKey();
+      vapidPublicKey = await getVapidKey(options);
     }
 
     if (vapidPublicKey) {
-      return await subscribeWebPush(vapidPublicKey);
+      return await subscribeWebPush(vapidPublicKey, options);
     }
 
     return false;
   } catch (error) {
     console.error('Failed to initialize web push:', error);
-    toast({
-      title: 'Error',
-      description: 'Failed to initialize push notifications. Please try again later.',
-      variant: 'destructive',
-    });
+    if (!options.silent) {
+      toast({
+        title: 'Error',
+        description: 'Failed to initialize push notifications. Please try again later.',
+        variant: 'destructive',
+      });
+    }
     return false;
   }
 }
 
+async function silentlyRepairDroppedSubscriptionIfNeeded(reason: string): Promise<boolean> {
+  if (!isCurrentUserLoggedIn() || !hasGrantedNotificationPermission()) {
+    return false;
+  }
+
+  const userEmail = document.body.getAttribute('data-user-email');
+  if (!userEmail) {
+    return false;
+  }
+
+  const storedFingerprint = getUserFingerprint(userEmail);
+  if (!storedFingerprint) {
+    return false;
+  }
+
+  try {
+    const subscription = await getActiveWebPushSubscription();
+    if (subscription) {
+      return true;
+    }
+  } catch (error) {
+    console.debug('Failed to inspect current push subscription:', error);
+    return false;
+  }
+
+  if (droppedSubscriptionRepairPromise) {
+    return droppedSubscriptionRepairPromise;
+  }
+
+  console.debug(`Detected dropped push subscription for previously subscribed device; repairing silently (${reason})`);
+  droppedSubscriptionRepairPromise = initializeWebPush(true, { silent: true })
+    .then((success) => {
+      if (success) {
+        localStorage.setItem(SUBSCRIPTION_HEALTH_STORAGE_KEY, String(Date.now()));
+      }
+      return success;
+    })
+    .catch((error) => {
+      console.debug('Silent dropped subscription repair failed:', error);
+      return false;
+    })
+    .finally(() => {
+      droppedSubscriptionRepairPromise = null;
+    });
+
+  return droppedSubscriptionRepairPromise;
+}
+
 async function refreshSubscriptionHealth(force = false): Promise<boolean> {
-  if (!isCurrentUserLoggedIn() || Notification.permission !== 'granted') {
+  if (!isCurrentUserLoggedIn() || !hasGrantedNotificationPermission()) {
     return false;
   }
 
@@ -713,15 +788,23 @@ export function initializePushModule(): void {
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
+      void silentlyRepairDroppedSubscriptionIfNeeded('visibilitychange');
       void refreshSubscriptionHealth();
     }
   });
 
   window.addEventListener('pageshow', () => {
+    void silentlyRepairDroppedSubscriptionIfNeeded('pageshow');
+    void refreshSubscriptionHealth();
+  });
+
+  window.addEventListener('focus', () => {
+    void silentlyRepairDroppedSubscriptionIfNeeded('focus');
     void refreshSubscriptionHealth();
   });
 
   window.addEventListener('online', () => {
+    void silentlyRepairDroppedSubscriptionIfNeeded('online');
     void refreshSubscriptionHealth(true);
   });
 

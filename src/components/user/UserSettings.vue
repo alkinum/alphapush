@@ -24,6 +24,7 @@ import { setMasterKey, getMasterKey } from '@/utils/encryption';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { defaultPreferences, userPreferenceManager, type UserPreference } from '@/services/userPreferenceService';
+import { getCombinedFingerprint } from '@/utils/fingerprint';
 
 const { toast } = useToast();
 
@@ -40,6 +41,7 @@ const barkDeviceKey = ref('');
 const showBarkDeviceKey = ref(false);
 const isSendingTestPush = ref(false);
 const isSavingBarkFallback = ref(false);
+const currentDeviceFingerprint = ref<string | null>(null);
 
 const props = defineProps<{
   initialPushToken?: string;
@@ -70,12 +72,22 @@ const userInitials = computed(() => {
 const masterKey = ref('');
 const showMasterKey = ref(false);
 
-const applyPreferences = (preferences: UserPreference) => {
+const applyUserPreferences = (preferences: UserPreference) => {
   showNotificationIcons.value = preferences.showNotificationIcons ?? defaultPreferences.showNotificationIcons;
+};
+
+const applyBarkFallbackPreferences = (
+  preferences: Pick<UserPreference, 'barkFallbackEnabled' | 'barkFallbackAlways' | 'barkServerUrl' | 'barkDeviceKey'>
+) => {
   barkFallbackEnabled.value = preferences.barkFallbackEnabled ?? defaultPreferences.barkFallbackEnabled;
   barkFallbackAlways.value = preferences.barkFallbackAlways ?? defaultPreferences.barkFallbackAlways;
   barkServerUrl.value = preferences.barkServerUrl || defaultPreferences.barkServerUrl;
   barkDeviceKey.value = preferences.barkDeviceKey || '';
+};
+
+const applyLocalPreferences = (preferences: UserPreference) => {
+  applyUserPreferences(preferences);
+  applyBarkFallbackPreferences(preferences);
 };
 
 onMounted(async () => {
@@ -89,7 +101,7 @@ onMounted(async () => {
     }
 
     // First load from local storage for immediate UI state.
-    applyPreferences(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences });
+    applyLocalPreferences(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences });
 
     // Then fetch the latest preferences from server to ensure we're in sync
     if (props.userInfo.email) {
@@ -105,17 +117,44 @@ onMounted(async () => {
 
           if (preferences) {
             // Update local state with server values
-            applyPreferences(preferences);
+            applyUserPreferences(preferences);
 
-            // Update local storage
-            userPreferenceManager.saveLocalPreferences(preferences);
+            // Keep Bark fallback local/device-scoped; do not import an account-level device key.
+            userPreferenceManager.saveLocalPreferences({
+              ...(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences }),
+              showNotificationIcons: preferences.showNotificationIcons,
+            });
 
-            console.debug('Loaded preferences from server:', preferences);
+            console.debug('Loaded user preferences from server');
           }
         }
       } catch (error) {
         console.error('Error fetching user preferences:', error);
         // Continue with local preferences if server fetch fails
+      }
+
+      try {
+        currentDeviceFingerprint.value = await getCombinedFingerprint(props.userInfo.email);
+        const response = await fetch(
+          `/api/subscription/fallback?deviceFingerprint=${encodeURIComponent(currentDeviceFingerprint.value)}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        );
+
+        if (response.ok) {
+          const data = (await response.json()) as {
+            barkFallbackEnabled: boolean;
+            barkFallbackAlways: boolean;
+            barkServerUrl: string;
+            barkDeviceKey: string;
+          };
+
+          applyBarkFallbackPreferences(data);
+        }
+      } catch (error) {
+        console.debug('Current device Bark fallback config is not available:', error);
       }
     }
   }
@@ -200,33 +239,51 @@ const saveBarkFallbackPreferences = async () => {
 
   try {
     isSavingBarkFallback.value = true;
-    const localPreferences = {
-      ...(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences }),
-      ...preferences,
-    };
-    userPreferenceManager.saveLocalPreferences(localPreferences);
+    if (!currentDeviceFingerprint.value) {
+      currentDeviceFingerprint.value = await getCombinedFingerprint(props.userInfo.email);
+    }
 
-    const response = await fetch('/api/user-preferences', {
-      method: 'POST',
+    const deviceResponse = await fetch('/api/subscription/fallback', {
+      method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
       credentials: 'include',
-      body: JSON.stringify({ preferences }),
+      body: JSON.stringify({
+        deviceFingerprint: currentDeviceFingerprint.value,
+        enabled: preferences.barkFallbackEnabled,
+        always: preferences.barkFallbackAlways,
+        serverUrl: preferences.barkServerUrl,
+        deviceKey: preferences.barkDeviceKey,
+      }),
     });
 
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new Error(errorData.error || 'Failed to save Bark fallback settings');
+    if (!deviceResponse.ok) {
+      const errorData = (await deviceResponse.json().catch(() => ({}))) as { error?: string };
+      if (deviceResponse.status === 404) {
+        throw new Error('Subscribe this device to Web Push before saving Bark fallback settings.');
+      }
+
+      throw new Error(
+        errorData.error || 'Failed to save current device fallback settings'
+      );
     }
 
-    const data = (await response.json()) as { preferences: UserPreference };
-    applyPreferences(data.preferences);
-    userPreferenceManager.saveLocalPreferences(data.preferences);
+    const data = (await deviceResponse.json()) as Pick<
+      UserPreference,
+      'barkFallbackEnabled' | 'barkFallbackAlways' | 'barkServerUrl' | 'barkDeviceKey'
+    >;
+    applyBarkFallbackPreferences(data);
+    userPreferenceManager.saveLocalPreferences({
+      ...(userPreferenceManager.getLocalPreferences() || { ...defaultPreferences }),
+      ...data,
+    });
 
     toast({
       title: 'Bark Fallback Saved',
-      description: barkFallbackEnabled.value ? 'Bark fallback is ready.' : 'Bark fallback is disabled.',
+      description: barkFallbackEnabled.value
+        ? 'Bark fallback is ready for this device.'
+        : 'Bark fallback is disabled for this device.',
     });
   } catch (error) {
     console.error('Error saving Bark fallback settings:', error);

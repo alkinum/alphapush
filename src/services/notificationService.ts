@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { pushNotifications, categories, groups } from '@/schema';
@@ -44,6 +44,12 @@ export interface NotificationListResponse {
 }
 
 export type NotificationDeliveryEvent = 'displayed' | 'opened';
+
+export interface MarkNotificationsReadResult {
+  readAt: Date;
+  updatedCount: number;
+  notificationIds?: string[];
+}
 
 export class NotificationService {
   private db: ReturnType<typeof getDb>;
@@ -251,6 +257,70 @@ export class NotificationService {
   }
 
   /**
+   * Get unread notification count for a user.
+   * @param userEmail User email
+   * @returns Unread notification count
+   */
+  async getUnreadCount(userEmail: string): Promise<number> {
+    try {
+      const result = await this.db
+        .select({ count: sql`COUNT(*)` })
+        .from(pushNotifications)
+        .where(and(eq(pushNotifications.userEmail, userEmail), isNull(pushNotifications.readAt)))
+        .get();
+
+      return Number(result?.count || 0);
+    } catch (error) {
+      logger.error(`Error getting unread count for user ${userEmail}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark notifications as read.
+   * @param userEmail User email
+   * @param notificationIds Optional notification IDs. When omitted, all unread notifications are marked read.
+   * @returns Read update summary
+   */
+  async markNotificationsRead(
+    userEmail: string,
+    notificationIds?: string[]
+  ): Promise<MarkNotificationsReadResult> {
+    const readAt = new Date();
+    const uniqueNotificationIds = Array.from(new Set(notificationIds?.filter(Boolean) || []));
+    const whereClause = uniqueNotificationIds.length > 0
+      ? and(
+        eq(pushNotifications.userEmail, userEmail),
+        isNull(pushNotifications.readAt),
+        inArray(pushNotifications.id, uniqueNotificationIds)
+      )
+      : and(eq(pushNotifications.userEmail, userEmail), isNull(pushNotifications.readAt));
+
+    try {
+      const updatedNotifications = await this.db
+        .update(pushNotifications)
+        .set({
+          readAt,
+          updatedAt: readAt,
+        })
+        .where(whereClause)
+        .returning({ id: pushNotifications.id })
+        .all();
+
+      return {
+        readAt,
+        updatedCount: updatedNotifications.length,
+        notificationIds: uniqueNotificationIds.length > 0
+          ? updatedNotifications.map((notification) => notification.id)
+          : undefined,
+      };
+    } catch (error) {
+      logger.error(`Error marking notifications read for user ${userEmail}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
    * Record client-side delivery receipts for a notification.
    * @param notificationId Notification ID
    * @param userEmail User email
@@ -268,6 +338,7 @@ export class NotificationService {
         ? {
           webPushDisplayedAt: now,
           webPushOpenedAt: now,
+          readAt: now,
           updatedAt: now,
         }
         : {

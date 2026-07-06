@@ -63,6 +63,12 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return base64ToUint8Array(base64);
+}
+
 async function deriveKey(masterKey, salt) {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(masterKey), { name: 'PBKDF2' }, false, [
@@ -119,6 +125,57 @@ self.addEventListener('push', function (event) {
   event.waitUntil(handlePushEvent(event));
 });
 
+self.addEventListener('pushsubscriptionchange', function (event) {
+  event.waitUntil(handlePushSubscriptionChange(event));
+});
+
+async function handlePushSubscriptionChange(event) {
+  try {
+    const keyResponse = await fetch('/api/vapid-keys', {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!keyResponse.ok) {
+      throw new Error(`Failed to fetch VAPID key: ${keyResponse.status}`);
+    }
+
+    const keyData = await keyResponse.json();
+    if (!keyData.publicKey) {
+      throw new Error('Missing VAPID public key');
+    }
+
+    const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
+    const subscription =
+      event.newSubscription ||
+      (await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      }));
+
+    const response = await fetch('/api/subscription', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        subscription,
+        oldEndpoint: event.oldSubscription?.endpoint,
+        isSafari: false,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update subscription after pushsubscriptionchange: ${response.status}`);
+    }
+
+    console.debug('Push subscription refreshed after pushsubscriptionchange');
+  } catch (error) {
+    console.debug('Failed to handle pushsubscriptionchange:', error);
+  }
+}
+
 async function handlePushEvent(event) {
   let data = {};
 
@@ -136,6 +193,7 @@ async function handlePushEvent(event) {
     vibrate: [100, 75, 240],
     data: {
       id: data.id,
+      subscriptionId: data.subscriptionId,
       category: data.category,
       notification_group: data.notification_group,
       type: data.type,
@@ -143,6 +201,7 @@ async function handlePushEvent(event) {
       createdAt: data.createdAt || Date.now(),
       tempAccessToken: data.tempAccessToken,
       navigateUrl: data.navigate_url || data.navigateUrl,
+      badgeCount: data.badgeCount ?? data.badge,
     },
   };
 
@@ -228,7 +287,8 @@ self.addEventListener('notificationclick', function (event) {
       if ((event.action === 'approve' || event.action === 'reject') && notificationData.approvalId && notificationData.tempAccessToken) {
         event.waitUntil(
           Promise.allSettled([
-            reportDeliveryEvent(notificationData.id, 'opened'),
+            reportDeliveryEvent(notificationData.id, 'opened', notificationData.subscriptionId),
+            markNotificationRead(notificationData.id),
             (async () => {
               try {
                 await updateApprovalState(notificationData.approvalId, event.action, notificationData.tempAccessToken);
@@ -249,6 +309,7 @@ self.addEventListener('notificationclick', function (event) {
 
     // Token is expired or nearly expired, or action is 'detail'
     setSearchParamIfPresent(url, 'approvalId', notificationData.approvalId);
+    setSearchParamIfPresent(url, 'subscriptionId', notificationData.subscriptionId);
     setSearchParamIfPresent(url, 'action', event.action); // Add action to URL
   }
 
@@ -261,7 +322,7 @@ self.addEventListener('notificationclick', function (event) {
       // Check if the URL has a valid protocol (http or https)
       if (navigateUrl.protocol === 'http:' || navigateUrl.protocol === 'https:') {
         event.notification.close();
-        event.waitUntil(openWindowWithReceipt(navigateUrl.toString(), notificationData.id));
+        event.waitUntil(openWindowWithReceipt(navigateUrl.toString(), notificationData.id, notificationData.subscriptionId));
         return;
       } else {
         console.warn('Invalid URL protocol:', navigateUrl.protocol);
@@ -274,12 +335,13 @@ self.addEventListener('notificationclick', function (event) {
   // If navigateUrl is not valid or doesn't exist, use the default URL
   if (event.action === 'detail' || !event.action) {
     setSearchParamIfPresent(url, 'notificationId', notificationData.id);
+    setSearchParamIfPresent(url, 'subscriptionId', notificationData.subscriptionId);
     setSearchParamIfPresent(url, 'category', notificationData.category);
     setSearchParamIfPresent(url, 'notification_group', notificationData.notification_group);
   }
 
   event.notification.close();
-  event.waitUntil(openWindowWithReceipt(url.toString(), notificationData.id));
+  event.waitUntil(openWindowWithReceipt(url.toString(), notificationData.id, notificationData.subscriptionId));
 });
 
 function setSearchParamIfPresent(url, key, value) {
@@ -290,7 +352,10 @@ function setSearchParamIfPresent(url, key, value) {
 
 async function showNotificationWithReceipt(title, options) {
   await self.registration.showNotification(title, options);
-  await reportDeliveryEvent(options?.data?.id, 'displayed');
+  await Promise.allSettled([
+    reportDeliveryEvent(options?.data?.id, 'displayed', options?.data?.subscriptionId),
+    updateBadgeFromPayload(options?.data),
+  ]);
 }
 
 async function showFallbackNotification(data) {
@@ -299,21 +364,24 @@ async function showFallbackNotification(data) {
     icon: '/icon.png',
     data: {
       id: data?.id,
+      subscriptionId: data?.subscriptionId,
+      badgeCount: data?.badgeCount ?? data?.badge,
       createdAt: Date.now(),
     },
   });
 }
 
-async function openWindowWithReceipt(url, notificationId) {
+async function openWindowWithReceipt(url, notificationId, subscriptionId) {
   const openWindowPromise = clients.openWindow(url);
   await Promise.allSettled([
-    reportDeliveryEvent(notificationId, 'opened'),
+    reportDeliveryEvent(notificationId, 'opened', subscriptionId),
+    markNotificationRead(notificationId),
     openWindowPromise,
   ]);
   return openWindowPromise;
 }
 
-async function reportDeliveryEvent(notificationId, eventType) {
+async function reportDeliveryEvent(notificationId, eventType, subscriptionId) {
   if (!notificationId) {
     return;
   }
@@ -327,12 +395,108 @@ async function reportDeliveryEvent(notificationId, eventType) {
       },
       body: JSON.stringify({
         notificationId,
+        subscriptionId,
         event: eventType,
       }),
     });
   } catch (error) {
     console.debug('Failed to report notification delivery event:', error);
   }
+}
+
+async function markNotificationRead(notificationId) {
+  if (!notificationId) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/notifications/read', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        notificationIds: [notificationId],
+      }),
+    });
+
+    if (!response.ok) {
+      await syncBadgeWithUnreadCount();
+      return;
+    }
+
+    const data = await response.json();
+    await setAppBadgeCount(data.unreadCount);
+  } catch (error) {
+    console.debug('Failed to mark notification read:', error);
+    await syncBadgeWithUnreadCount();
+  }
+}
+
+async function updateBadgeFromPayload(data) {
+  const badgeCount = getBadgeCountFromPayload(data);
+  if (badgeCount !== null) {
+    await setAppBadgeCount(badgeCount);
+    return;
+  }
+
+  await syncBadgeWithUnreadCount();
+}
+
+async function syncBadgeWithUnreadCount() {
+  try {
+    const response = await fetch('/api/notifications/unread-count', {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const data = await response.json();
+    await setAppBadgeCount(data.unreadCount);
+  } catch (error) {
+    console.debug('Failed to sync app badge unread count:', error);
+  }
+}
+
+async function setAppBadgeCount(count) {
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Math.floor(Number(count))) : 0;
+  const badgeNavigator = globalThis.navigator || {};
+  const badgeRegistration = self.registration || {};
+
+  try {
+    if (safeCount > 0) {
+      if (typeof badgeNavigator.setAppBadge === 'function') {
+        await badgeNavigator.setAppBadge(safeCount);
+      } else if (typeof badgeRegistration.setAppBadge === 'function') {
+        await badgeRegistration.setAppBadge(safeCount);
+      }
+    } else if (typeof badgeNavigator.clearAppBadge === 'function') {
+      await badgeNavigator.clearAppBadge();
+    } else if (typeof badgeRegistration.clearAppBadge === 'function') {
+      await badgeRegistration.clearAppBadge();
+    }
+  } catch (error) {
+    console.debug('Failed to update app badge:', error);
+  }
+}
+
+function getBadgeCountFromPayload(data) {
+  if (!data) {
+    return null;
+  }
+
+  const value = data.badgeCount ?? data.badge;
+  const count = Number(value);
+
+  if (!Number.isFinite(count)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(count));
 }
 
 async function updateApprovalState(approvalId, action, token) {

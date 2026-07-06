@@ -21,9 +21,25 @@ export const GET: APIRoute = async (context) => {
     const pageSize = parseInt(url.searchParams.get('pageSize') || '10');
     const group = url.searchParams.get('group') || undefined;
     const category = url.searchParams.get('category') || undefined;
+    const notificationId = url.searchParams.get('id');
 
     const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
+
+    if (notificationId) {
+      const notification = await notificationService.getNotification(notificationId, userEmail);
+      if (!notification) {
+        return new Response(JSON.stringify({ error: 'Notification not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response(JSON.stringify({ notification }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     const result = await notificationService.getNotifications(userEmail, {
       page,

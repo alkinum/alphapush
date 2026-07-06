@@ -38,6 +38,11 @@ type BarkPreferenceValidation =
     error: string;
   };
 
+export interface BarkFallbackTarget {
+  barkServerUrl: string;
+  barkDeviceKey: string;
+}
+
 interface BarkFallbackOptions {
   urgency?: 'normal' | 'high';
 }
@@ -50,7 +55,15 @@ export class BarkFallbackService {
     notification: Notification,
     options: BarkFallbackOptions = {}
   ): Promise<BarkFallbackResult> {
-    const validation = validateBarkPreferences(preferences);
+    return this.sendToTarget(preferences, notification, options);
+  }
+
+  async sendToTarget(
+    target: BarkFallbackTarget,
+    notification: Notification,
+    options: BarkFallbackOptions = {}
+  ): Promise<BarkFallbackResult> {
+    const validation = validateBarkTarget(target);
     if (!validation.isValid) {
       return { sent: false, error: validation.error };
     }
@@ -145,14 +158,18 @@ export class BarkFallbackService {
 }
 
 export function validateBarkPreferences(preferences: UserPreference): BarkPreferenceValidation {
-  const deviceKey = preferences.barkDeviceKey.trim();
+  return validateBarkTarget(preferences);
+}
+
+export function validateBarkTarget(target: BarkFallbackTarget): BarkPreferenceValidation {
+  const deviceKey = target.barkDeviceKey.trim();
   if (!deviceKey) {
     return { isValid: false, error: 'Bark device key is not configured' };
   }
 
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(preferences.barkServerUrl.trim());
+    parsedUrl = new URL(target.barkServerUrl.trim());
   } catch {
     return { isValid: false, error: 'Invalid Bark server URL' };
   }

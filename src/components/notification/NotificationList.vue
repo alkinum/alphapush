@@ -63,6 +63,7 @@ const {
   loadMoreNotifications,
   retryFetchNotifications,
   handleNotificationDeleted,
+  markNotificationsReadLocally,
   handleNewNotification,
   handleUpdateNotification,
   fetchNotificationById,
@@ -125,6 +126,20 @@ const handleReconnectSSE = () => {
   }, 1000);
 };
 
+const handleNotificationsRead = (event: Event) => {
+  const detail = (event as CustomEvent<{
+    all?: boolean;
+    readAt?: string;
+    notificationIds?: string[];
+  }>).detail;
+
+  if (!detail?.readAt) {
+    return;
+  }
+
+  markNotificationsReadLocally(detail.notificationIds, detail.readAt, !!detail.all);
+};
+
 // Fetch notification details by ID
 const handleNotificationIdFromRoute = (notificationId: string) => {
   console.log(`Found notificationId in page data: ${notificationId}`);
@@ -181,6 +196,10 @@ onMounted(() => {
 
     // Setup reconnect listener for SSE
     document.addEventListener('reconnectSSE', handleReconnectSSE as EventListener);
+    document.addEventListener('alphapush:notifications-read', handleNotificationsRead as EventListener);
+
+    // Entering the app marks currently visible notifications as read.
+    markNotificationsReadLocally(undefined, new Date(), true);
 
     // Check for notificationId in body data attribute
     const notificationId = document.body.getAttribute('data-notification-id');
@@ -196,6 +215,7 @@ onUnmounted(() => {
   disconnect();
   window.removeEventListener('scroll', handleScroll);
   document.removeEventListener('reconnectSSE', handleReconnectSSE as EventListener);
+  document.removeEventListener('alphapush:notifications-read', handleNotificationsRead as EventListener);
 });
 
 // Watch for user changes
