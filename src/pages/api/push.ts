@@ -26,6 +26,7 @@ interface FrontmatterParams {
 interface PushBody {
   pushToken: string;
   content: string;
+  test?: boolean;
   // Direct parameters that can override frontmatter
   title?: string;
   subtitle?: string;
@@ -340,21 +341,30 @@ export const POST: APIRoute = async ({ request }) => {
     );
 
     if (!pushResult.success) {
+      const failedResponseData = {
+        success: body.test === true,
+        error: pushResult.error || 'Some push notifications failed to send',
+        deliveryWarning: body.test === true
+          ? pushResult.error || 'No push delivery channel confirmed the test notification'
+          : undefined,
+        notificationId: notification.id,
+        successfulPushes: pushResult.successfulPushes,
+        failedPushes: pushResult.failedPushes,
+        ignoredPushFailures: pushResult.ignoredPushFailures,
+        removedSubscriptions: pushResult.removedSubscriptions,
+        barkFallbackSent: pushResult.barkFallbackSent,
+        barkFallbackReason: pushResult.barkFallbackReason,
+        barkFallbackError: pushResult.barkFallbackError,
+      };
+
       logger.error('Push API error: Failed to send push notifications', {
         error: pushResult.error,
         failedPushesCount: pushResult.failedPushes?.length,
-        notificationId: notification.id
+        notificationId: notification.id,
+        treatedAsTestSuccess: body.test === true,
       });
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: pushResult.error || 'Some push notifications failed to send',
-          successfulPushes: pushResult.successfulPushes,
-          failedPushes: pushResult.failedPushes,
-          barkFallbackSent: pushResult.barkFallbackSent,
-          barkFallbackReason: pushResult.barkFallbackReason,
-          barkFallbackError: pushResult.barkFallbackError,
-        }),
+        JSON.stringify(failedResponseData),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -368,6 +378,8 @@ export const POST: APIRoute = async ({ request }) => {
       approvalId?: string;
       successfulPushes?: number;
       failedPushes?: Array<{ subscriptionId: string; reason: string }>;
+      ignoredPushFailures?: Array<{ subscriptionId: string; reason: string }>;
+      removedSubscriptions?: number;
       barkFallbackSent?: boolean;
       barkFallbackReason?: string;
       barkFallbackError?: string;
@@ -376,6 +388,8 @@ export const POST: APIRoute = async ({ request }) => {
       notificationId: notification.id,
       successfulPushes: pushResult.successfulPushes,
       failedPushes: pushResult.failedPushes,
+      ignoredPushFailures: pushResult.ignoredPushFailures,
+      removedSubscriptions: pushResult.removedSubscriptions,
       barkFallbackSent: pushResult.barkFallbackSent,
       barkFallbackReason: pushResult.barkFallbackReason,
       barkFallbackError: pushResult.barkFallbackError,

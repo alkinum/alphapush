@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { getPushDeliveryWarning, hasConfirmedPushDelivery, type PushApiResponse } from '@/utils/pushResponse';
 
 interface Session {
   user?: {
@@ -18,14 +19,6 @@ interface Session {
 interface Props {
   session: Session | null;
   initialPushToken: string | null;
-}
-
-interface NotificationResponse {
-  success: boolean;
-  notificationId?: string;
-  approvalId?: string;
-  error?: string;
-  failedPushes?: Array<any>;
 }
 
 interface PushPayload {
@@ -148,12 +141,14 @@ async function sendNotification() {
       body: JSON.stringify(payload),
     });
 
-    const result = (await response.json()) as NotificationResponse;
+    const result = (await response.json().catch(() => ({}))) as PushApiResponse;
+    const deliveryWarning = getPushDeliveryWarning(result);
 
-    if (response.ok && result.success) {
+    if (hasConfirmedPushDelivery(result)) {
       toast({
-        title: 'Success',
-        description: `Notification sent successfully (ID: ${result.notificationId})`,
+        title: deliveryWarning ? 'Notification sent' : 'Success',
+        description: deliveryWarning || `Notification sent successfully (ID: ${result.notificationId})`,
+        variant: deliveryWarning ? 'warning' : undefined,
       });
 
       // Clear form fields if preserve inputs is not checked
@@ -165,6 +160,12 @@ async function sendNotification() {
         url.value = '';
         icon.value = '';
       }
+    } else if (!response.ok) {
+      toast({
+        title: 'Error',
+        description: result.error || 'Failed to send notification',
+        variant: 'destructive',
+      });
     } else {
       toast({
         title: 'Error',

@@ -122,7 +122,16 @@ async function decryptMessage(encryptedContent, nonce) {
 }
 
 self.addEventListener('push', function (event) {
-  event.waitUntil(handlePushEvent(event));
+  event.waitUntil(
+    handlePushEvent(event).catch(async (error) => {
+      console.error('Unhandled push event error:', error);
+      try {
+        await showFallbackNotification({});
+      } catch (fallbackError) {
+        console.error('Failed to show final fallback notification:', fallbackError);
+      }
+    }),
+  );
 });
 
 self.addEventListener('pushsubscriptionchange', function (event) {
@@ -180,7 +189,7 @@ async function handlePushEvent(event) {
   let data = {};
 
   try {
-    data = event.data ? event.data.json() : {};
+    data = parsePushPayload(event);
   } catch (error) {
     console.error('Failed to parse push payload:', error);
     await showFallbackNotification({});
@@ -241,6 +250,20 @@ async function handlePushEvent(event) {
   } catch (error) {
     console.error('Failed to show push notification:', error);
     await showFallbackNotification(data);
+  }
+}
+
+function parsePushPayload(event) {
+  if (!event.data) {
+    return {};
+  }
+
+  try {
+    const parsed = event.data.json();
+    return parsed && typeof parsed === 'object' ? parsed : { body: String(parsed || '') };
+  } catch {
+    const text = event.data.text();
+    return text ? { body: text } : {};
   }
 }
 

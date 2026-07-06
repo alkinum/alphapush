@@ -22,6 +22,8 @@ export interface PushResult {
   error?: string;
   successfulPushes?: number;
   failedPushes?: Array<{ subscriptionId: string; reason: string }>;
+  ignoredPushFailures?: Array<{ subscriptionId: string; reason: string }>;
+  removedSubscriptions?: number;
   barkFallbackSent?: boolean;
   barkFallbackReason?: string;
   barkFallbackError?: string;
@@ -355,6 +357,14 @@ export class PushService {
       topic: options.topic
     });
 
+    const failedPushes: Array<{ subscriptionId: string; reason: string }> = [];
+    const ignoredPushFailures: Array<{ subscriptionId: string; reason: string }> = [];
+    let removedSubscriptions = 0;
+    let successfulPushes = 0;
+    let barkFallbackSent = false;
+    let barkFallbackReason: string | undefined;
+    let barkFallbackError: string | undefined;
+
     try {
       // Get user subscriptions
       const userSubscriptions = await this.db
@@ -365,15 +375,10 @@ export class PushService {
 
       logger.debug(`Found ${userSubscriptions.length} subscriptions for user: ${user.email}`);
 
-      const failedPushes: Array<{ subscriptionId: string; reason: string }> = [];
       const webPushService = new WebPushService(user.publicKey, user.privateKey, `mailto:${user.email}`);
       const subscriptionService = new SubscriptionService(this.env.DB);
       const deliveryRetryService = new DeliveryRetryService(this.db, this.env);
-      const subscriptionsToRemove: string[] = [];
-      let successfulPushes = 0;
-      let barkFallbackSent = false;
-      let barkFallbackReason: string | undefined;
-      let barkFallbackError: string | undefined;
+      const subscriptionsToRemove = new Set<string>();
       const badgeCount = options.badgeCount ?? await this.getUnreadCount(user.email);
 
       const sendDeviceFallback = async (
@@ -417,29 +422,58 @@ export class PushService {
 
       // Send notifications to all subscriptions
       for (const sub of userSubscriptions) {
-        const subscription: PushSubscription = JSON.parse(sub.subscription);
-        const deliveryOptions = { ...options, badgeCount, subscriptionId: sub.id };
+        let subscription: PushSubscription;
+        let message: string;
 
-        // Format message based on subscription type (Safari vs standard)
-        const message = sub.isSafari
-          ? this.formatSafariMessage(notification, deliveryOptions)
-          : JSON.stringify({
-            ...notification,
-            approvalState: options.approvalState,
-            approvalId: options.approvalId,
-            tempAccessToken: options.tempAccessToken,
-            badgeCount,
+        try {
+          subscription = parseStoredPushSubscription(sub.subscription);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Invalid stored push subscription';
+          logger.warn(`Removing invalid stored push subscription ${sub.id}: ${reason}`, {
             subscriptionId: sub.id,
+            userEmail: user.email,
           });
+          ignoredPushFailures.push({
+            subscriptionId: sub.id,
+            reason,
+          });
+          subscriptionsToRemove.add(sub.id);
+          continue;
+        }
 
-        // Check message size
-        if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
-          logger.error(`Message size exceeds 4KB limit for notification: ${notification.id}`);
+        try {
+          const deliveryOptions = { ...options, badgeCount, subscriptionId: sub.id };
+
+          // Format message based on subscription type (Safari vs standard)
+          message = sub.isSafari
+            ? this.formatSafariMessage(notification, deliveryOptions)
+            : JSON.stringify({
+              ...notification,
+              approvalState: options.approvalState,
+              approvalId: options.approvalId,
+              tempAccessToken: options.tempAccessToken,
+              badgeCount,
+              subscriptionId: sub.id,
+            });
+
+          // Check message size
+          if (new TextEncoder().encode(message).length > MAX_MESSAGE_SIZE) {
+            logger.error(`Message size exceeds 4KB limit for notification: ${notification.id}`);
+            failedPushes.push({
+              subscriptionId: sub.id,
+              reason: 'Message size exceeds 4KB limit',
+            });
+            await sendDeviceFallback(sub, 'web-push-message-too-large');
+            continue;
+          }
+        } catch (error) {
+          logger.error(`Failed to prepare push notification for subscription ${sub.id}:`, error);
           failedPushes.push({
             subscriptionId: sub.id,
-            reason: 'Message size exceeds 4KB limit',
+            reason: error instanceof Error ? error.message : 'Invalid subscription payload',
           });
-          await sendDeviceFallback(sub, 'web-push-message-too-large');
+          await sendDeviceFallback(sub, 'web-push-message-prepare-failed');
+
           continue;
         }
 
@@ -451,37 +485,45 @@ export class PushService {
             urgency: options.urgency || 'normal',
           });
         } catch (error) {
+          const statusCode = getPushErrorStatusCode(error);
+          if (isExpiredPushSubscriptionStatusCode(statusCode)) {
+            const reason = getPushErrorReason(error, `Web Push subscription expired (${statusCode})`);
+            logger.info(`Removing expired push subscription ${sub.id}: ${reason}`, {
+              subscriptionId: sub.id,
+              userEmail: user.email,
+              statusCode,
+            });
+            ignoredPushFailures.push({
+              subscriptionId: sub.id,
+              reason,
+            });
+            subscriptionsToRemove.add(sub.id);
+            continue;
+          }
+
           logger.error(`Failed to send push notification to subscription ${sub.id}:`, error);
           failedPushes.push({
             subscriptionId: sub.id,
-            reason: (error as Error).message,
+            reason: getPushErrorReason(error, 'Web Push send failed'),
           });
-
-          const statusCode = getPushErrorStatusCode(error);
 
           await sendDeviceFallback(
             sub,
-            statusCode === 404 || statusCode === 410
-              ? 'web-push-subscription-expired'
-              : 'web-push-send-failed'
+            'web-push-send-failed'
           );
 
-          if (statusCode === 404 || statusCode === 410) {
-            subscriptionsToRemove.push(sub.id);
-          } else {
-            try {
-              await this.db
-                .update(subscriptions)
-                .set({
-                  lastFailureAt: new Date(),
-                  lastStatusCode: statusCode,
-                  failureCount: (sub.failureCount || 0) + 1,
-                  updatedAt: new Date(),
-                })
-                .where(eq(subscriptions.id, sub.id));
-            } catch (updateError) {
-              logger.error(`Failed to update subscription failure state for ${sub.id}:`, updateError);
-            }
+          try {
+            await this.db
+              .update(subscriptions)
+              .set({
+                lastFailureAt: new Date(),
+                lastStatusCode: statusCode,
+                failureCount: (sub.failureCount || 0) + 1,
+                updatedAt: new Date(),
+              })
+              .where(eq(subscriptions.id, sub.id));
+          } catch (updateError) {
+            logger.error(`Failed to update subscription failure state for ${sub.id}:`, updateError);
           }
 
           continue;
@@ -544,14 +586,15 @@ export class PushService {
         }
       }
 
-      // Clean up expired subscriptions
+      // Clean up invalid or expired subscriptions after the send loop so iteration stays stable.
       for (const subscriptionId of subscriptionsToRemove) {
-        logger.debug(`Removing expired subscription: ${subscriptionId}`);
+        logger.debug(`Removing invalid or expired subscription: ${subscriptionId}`);
         const isDeleted = await subscriptionService.deleteSubscriptionById(subscriptionId);
         if (isDeleted) {
-          logger.info(`Removed expired subscription: ${subscriptionId}`);
+          removedSubscriptions += 1;
+          logger.info(`Removed invalid or expired subscription: ${subscriptionId}`);
         } else {
-          logger.error(`Failed to remove expired subscription: ${subscriptionId}`);
+          logger.error(`Failed to remove invalid or expired subscription: ${subscriptionId}`);
         }
       }
 
@@ -578,16 +621,19 @@ export class PushService {
       if (failedPushes.length > 0) {
         logger.warn(`Some push notifications failed to send for notification: ${notification.id}`, {
           failedCount: failedPushes.length,
+          ignoredFailureCount: ignoredPushFailures.length,
           totalCount: userSubscriptions.length
         });
       }
 
-      const deliverySucceeded = successfulPushes > 0 || barkFallbackSent;
+      const onlyIgnoredSubscriptionFailures = ignoredPushFailures.length > 0 && failedPushes.length === 0;
+      const deliverySucceeded = successfulPushes > 0 || barkFallbackSent || onlyIgnoredSubscriptionFailures;
       if (!deliverySucceeded) {
         const error = getNoDeliveryError(userSubscriptions.length, failedPushes, barkFallbackError);
         logger.warn(`No push delivery channel succeeded for notification: ${notification.id}`, {
           totalCount: userSubscriptions.length,
           failedCount: failedPushes.length,
+          ignoredFailureCount: ignoredPushFailures.length,
           barkFallbackError,
         });
 
@@ -596,6 +642,8 @@ export class PushService {
           error,
           successfulPushes,
           failedPushes,
+          ignoredPushFailures: ignoredPushFailures.length > 0 ? ignoredPushFailures : undefined,
+          removedSubscriptions: removedSubscriptions || undefined,
           notificationId: notification.id,
           approvalId: options.approvalId,
           barkFallbackSent,
@@ -607,6 +655,8 @@ export class PushService {
       logger.debug(`Push delivery succeeded for notification: ${notification.id}`, {
         successfulPushes,
         failedPushes: failedPushes.length,
+        ignoredPushFailures: ignoredPushFailures.length,
+        removedSubscriptions,
         barkFallbackSent,
       });
       return {
@@ -615,25 +665,105 @@ export class PushService {
         approvalId: options.approvalId,
         successfulPushes,
         failedPushes: failedPushes.length > 0 ? failedPushes : undefined,
+        ignoredPushFailures: ignoredPushFailures.length > 0 ? ignoredPushFailures : undefined,
+        removedSubscriptions: removedSubscriptions || undefined,
         barkFallbackSent,
         barkFallbackReason,
         barkFallbackError,
       };
     } catch (error) {
       logger.error(`Error in push service for notification: ${notification.id}:`, error);
+      const deliverySucceeded =
+        successfulPushes > 0 ||
+        barkFallbackSent ||
+        (ignoredPushFailures.length > 0 && failedPushes.length === 0);
+
       return {
-        success: false,
-        error: 'Internal Server Error',
+        success: deliverySucceeded,
+        error: deliverySucceeded ? undefined : 'Internal Server Error',
         notificationId: notification.id,
         approvalId: options.approvalId,
+        successfulPushes,
+        failedPushes: failedPushes.length > 0 ? failedPushes : undefined,
+        ignoredPushFailures: ignoredPushFailures.length > 0 ? ignoredPushFailures : undefined,
+        removedSubscriptions: removedSubscriptions || undefined,
+        barkFallbackSent,
+        barkFallbackReason,
+        barkFallbackError,
       };
     }
   }
 }
 
 function getPushErrorStatusCode(error: unknown): number | null {
-  if (error instanceof Error && 'statusCode' in error && typeof (error as any).statusCode === 'number') {
-    return (error as any).statusCode;
+  if (error instanceof Error && 'statusCode' in error) {
+    const statusCode = (error as Error & { statusCode?: unknown }).statusCode;
+    if (typeof statusCode === 'number') {
+      return statusCode;
+    }
+  }
+
+  return null;
+}
+
+function getPushErrorReason(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function isExpiredPushSubscriptionStatusCode(statusCode: number | null): boolean {
+  return statusCode === 404 || statusCode === 410;
+}
+
+function parseStoredPushSubscription(subscriptionJson: string): PushSubscription {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(subscriptionJson);
+  } catch {
+    throw new Error('Stored push subscription JSON is invalid');
+  }
+
+  const invalidReason = getInvalidPushSubscriptionReason(parsed);
+  if (invalidReason) {
+    throw new Error(invalidReason);
+  }
+
+  return parsed as PushSubscription;
+}
+
+function getInvalidPushSubscriptionReason(value: unknown): string | null {
+  if (!value || typeof value !== 'object') {
+    return 'Stored push subscription is not an object';
+  }
+
+  const subscription = value as {
+    endpoint?: unknown;
+    keys?: {
+      auth?: unknown;
+      p256dh?: unknown;
+    };
+  };
+
+  if (typeof subscription.endpoint !== 'string' || !subscription.endpoint.trim()) {
+    return 'Stored push subscription endpoint is missing';
+  }
+
+  try {
+    new URL(subscription.endpoint);
+  } catch {
+    return 'Stored push subscription endpoint is invalid';
+  }
+
+  if (!subscription.keys || typeof subscription.keys !== 'object') {
+    return 'Stored push subscription keys are missing';
+  }
+
+  if (typeof subscription.keys.auth !== 'string' || !subscription.keys.auth.trim()) {
+    return 'Stored push subscription auth key is missing';
+  }
+
+  if (typeof subscription.keys.p256dh !== 'string' || !subscription.keys.p256dh.trim()) {
+    return 'Stored push subscription p256dh key is missing';
   }
 
   return null;

@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { defaultPreferences, userPreferenceManager, type UserPreference } from '@/services/userPreferenceService';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
+import { getPushDeliveryWarning, hasConfirmedPushDelivery, type PushApiResponse } from '@/utils/pushResponse';
 
 const { toast } = useToast();
 
@@ -349,21 +350,21 @@ const sendTestPush = async () => {
         title: 'Test Notification',
         subtitle: 'Sent from your device',
         category: 'test',
+        test: true,
       }),
     });
 
-    if (!response.ok) {
-      const errorData = (await response.json()) as { error?: string };
-      throw new Error(errorData.error || 'Failed to send test notification');
-    }
+    const result = (await response.json().catch(() => ({}))) as PushApiResponse;
+    const deliveryWarning = getPushDeliveryWarning(result);
 
-    const result = (await response.json()) as { success: boolean; error?: string };
-
-    if (result.success) {
+    if (hasConfirmedPushDelivery(result)) {
       toast({
-        title: 'Success',
-        description: 'Test notification sent successfully',
+        title: deliveryWarning ? 'Test notification sent' : 'Success',
+        description: deliveryWarning || 'Test notification sent successfully',
+        variant: deliveryWarning ? 'warning' : undefined,
       });
+    } else if (!response.ok) {
+      throw new Error(result.error || 'Failed to send test notification');
     } else {
       throw new Error(result.error || 'Failed to send test notification');
     }
