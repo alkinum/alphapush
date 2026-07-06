@@ -28,6 +28,9 @@ pnpm-debug.log*
 
 # cloudflare things
 .wrangler
+wrangler.jsonc
+wrangler.*.toml
+!wrangler.*.template.toml
 
 # drizzle
 .drizzle*

@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   output: 'server',
   adapter: cloudflare({
+    configPath: './wrangler.template.jsonc',
     mode: 'directory',
     functionPerRoute: true,
   }),

@@ -15,6 +15,10 @@
     "db:migrate:dev": "wrangler d1 migrations apply --env dev alphapush-dev --remote",
     "deploy:dev": "pnpm run build && wrangler pages deploy dist --branch dev",
     "deploy:prod": "pnpm run build && wrangler pages deploy dist --branch main",
+    "workers:list": "node scripts/deploy-workers.mjs --list",
+    "workers:deploy": "node scripts/deploy-workers.mjs --all --env production",
+    "worker:delivery-retries:deploy": "node scripts/deploy-workers.mjs --worker delivery-retries --env production",
+    "worker:delivery-retries:dev": "wrangler dev -c wrangler.delivery-retries.toml",
     "prebuild": "node scripts/prebuild.mjs",
     "generate:worker-types": "wrangler types"
   },

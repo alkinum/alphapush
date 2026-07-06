@@ -85,18 +85,18 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
    wrangler kv:namespace create alphapush
    ```
 
-6. Setup the environment variables:
+6. Create your local Wrangler config from the tracked template:
+
+   ```
+   cp wrangler.template.jsonc wrangler.jsonc
+   ```
+
+   Edit `wrangler.jsonc` for your own Cloudflare Pages project. The real `wrangler.jsonc` is ignored by git; only `wrangler.template.jsonc` should be committed.
+
+7. Setup the environment variables:
 
    ```
    DB_ID=your_database_id
-   ```
-
-7. Setup `wrangler.toml` with the following content:
-
-   ```toml
-   kv_namespaces = [
-     { binding = "KV", id = "your_kv_namespace_id" }
-   ]
    ```
 
 ### Development
@@ -122,6 +122,27 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
    ```
    pnpm run deploy:prod
    ```
+
+3. Configure the delivery retry shared secret for both the Pages app and the cron Worker:
+
+   ```
+   cp wrangler.delivery-retries.template.toml wrangler.delivery-retries.toml
+   ```
+
+   Edit `wrangler.delivery-retries.toml` for your Cloudflare account and deployment origin. This local file is ignored by git; only the template should be committed.
+
+   ```
+   wrangler pages secret put DELIVERY_RETRY_SECRET --project-name your-pages-project
+   wrangler secret put DELIVERY_RETRY_SECRET -c wrangler.delivery-retries.toml --env production
+   ```
+
+4. Deploy the delivery retry cron Worker:
+
+   ```
+   pnpm run worker:delivery-retries:deploy
+   ```
+
+   The Worker runs every 5 minutes and calls the protected `/api/delivery-retries/process` endpoint. Cron schedules are UTC and can take several minutes to propagate after deployment.
 
 ### AI-Assisted Development
 

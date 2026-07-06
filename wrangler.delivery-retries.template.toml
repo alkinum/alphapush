@@ -1,0 +1,34 @@
+# Delivery retry cron Worker.
+# Runs independently from the Cloudflare Pages app and calls the protected
+# /api/delivery-retries/process endpoint.
+
+name = "your-alphapush-delivery-retries"
+main = "workers/delivery-retries.ts"
+compatibility_date = "2026-04-15"
+compatibility_flags = ["nodejs_compat"]
+
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+APP_ORIGIN = "http://localhost:4321"
+DELIVERY_RETRY_LIMIT = "50"
+DELIVERY_RETRY_REQUEST_TIMEOUT_MS = "20000"
+
+[env.production]
+name = "your-alphapush-delivery-retries-production"
+
+[env.production.triggers]
+crons = ["*/5 * * * *"]
+
+[env.production.vars]
+APP_ORIGIN = "https://your-alphapush.example.com"
+DELIVERY_RETRY_LIMIT = "50"
+DELIVERY_RETRY_REQUEST_TIMEOUT_MS = "20000"
