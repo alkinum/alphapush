@@ -19,7 +19,7 @@ import {
   ContextMenuTrigger,
   ContextMenuShortcut,
 } from '@/components/ui/context-menu';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { useToast } from '@/components/ui/sonner/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 
 import DeleteConfirmationDialog from './DeleteConfirmationDialog.vue';
@@ -61,8 +61,10 @@ const pointerStart = ref<{ x: number; y: number } | null>(null);
 
 const renderer = new marked.Renderer();
 renderer.code = ({ text, lang }) => {
-  const highlightedCode = hljs.highlight(text, { language: lang || 'text' });
-  return `<div class="code-block">${highlightedCode}</div>`;
+  const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+  const highlightedCode = hljs.highlight(text, { language, ignoreIllegals: true }).value;
+
+  return `<pre class="code-block"><code class="hljs language-${language}">${highlightedCode}</code></pre>`;
 };
 
 const decryptedContent = ref<string | null>(null);
@@ -527,6 +529,7 @@ const handleCancelDelete = () => {
       v-if="isMobile"
       variant="destructive"
       size="icon"
+      aria-label="Delete notification"
       class="absolute right-0 top-1/2 transform -translate-y-1/2 delete-btn"
       :style="{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none' }"
       :class="{ 'fade-out': props.notification.isDeleting }"
@@ -553,6 +556,7 @@ const handleCancelDelete = () => {
   </ContextMenu>
 
   <DeleteConfirmationDialog
+    v-if="showDeleteDialog"
     :isOpen="showDeleteDialog"
     @confirm="handleDelete"
     @cancel="showDeleteDialog = false"

@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue';
 import type { Ref } from 'vue';
 import type { Notification } from '@/types/notification';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { useToast } from '@/components/ui/sonner/use-toast';
 
 // Extended notification type with UI-specific properties
 export interface UINotification extends Notification {

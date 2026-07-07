@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { type HTMLAttributes, computed } from 'vue';
-import { DialogDescription, type DialogDescriptionProps } from 'radix-vue';
-import { cn } from '@/utils/shadcn';
+import type { DialogDescriptionProps } from "reka-ui"
+import type { HTMLAttributes } from "vue"
+import { reactiveOmit } from "@vueuse/core"
+import { DialogDescription } from "reka-ui"
+import { cn } from '@/utils/shadcn'
 
-const props = defineProps<DialogDescriptionProps & { class?: HTMLAttributes['class'] }>();
+const props = defineProps<DialogDescriptionProps & { class?: HTMLAttributes["class"] }>()
 
-const delegatedProps = computed(() => {
-  const { class: _, ...delegated } = props;
-
-  return delegated;
-});
+const delegatedProps = reactiveOmit(props, "class")
 </script>
 
 <template>
-  <DialogDescription :class="cn('text-sm text-muted-foreground', props.class)" v-bind="delegatedProps">
+  <DialogDescription
+    :class="cn('text-sm text-muted-foreground', props.class)"
+    v-bind="delegatedProps"
+  >
     <slot />
   </DialogDescription>
 </template>

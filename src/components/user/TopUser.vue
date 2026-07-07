@@ -50,7 +50,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Icon } from '@iconify/vue';
 
 import type { UserRole } from '@/auth';
-import { useToast } from '@/components/ui/toast';
+import { useToast } from '@/components/ui/sonner';
 
 import UserSettings from './UserSettings.vue';
 

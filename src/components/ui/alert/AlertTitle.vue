@@ -1,36 +1,45 @@
 <script setup lang="ts">
-import { inject, ref } from 'vue';
-import type { ComputedRef, HTMLAttributes, Ref } from 'vue';
-import { Icon } from '@iconify/vue';
-import { cn } from '@/utils/shadcn';
+import type { ComputedRef, Ref } from "vue"
+import { computed, inject } from "vue"
+import type { HTMLAttributes } from "vue"
+import { Icon } from "@iconify/vue"
+import { cn } from '@/utils/shadcn'
 
 const props = defineProps<{
-  class?: HTMLAttributes['class'];
-}>();
+  class?: HTMLAttributes["class"]
+}>()
 
-const closable = inject<ComputedRef<boolean>>('closable');
-const closeAlert = inject('closeAlert', () => {});
-const showDismissForever = inject<Ref<boolean>>('showDismissForever');
-const dismissForever = inject('dismissForever', () => {});
-const dismissTemporarily = inject('dismissTemporarily', () => {});
-const allowDismissForever = inject<ComputedRef<boolean>>('allowDismissForever');
+const closable = inject<ComputedRef<boolean | undefined>>("closable")
+const closeAlert = inject("closeAlert", () => {})
+const showDismissForever = inject<Ref<boolean>>("showDismissForever")
+const dismissForever = inject("dismissForever", () => {})
+const dismissTemporarily = inject("dismissTemporarily", () => {})
+const allowDismissForever = inject<ComputedRef<boolean | undefined>>("allowDismissForever")
+
+const isClosable = computed(() => closable?.value ?? false)
+const isDismissForeverPromptVisible = computed(() => showDismissForever?.value ?? false)
+const canDismissForever = computed(() => allowDismissForever?.value ?? false)
 </script>
 
 <template>
   <div :class="cn('relative flex items-center justify-between', props.class)">
-    <h5 :class="cn(`${closable ? '' : 'mb-1 '}font-medium leading-none tracking-tight`)">
+    <h5 :class="cn(`${isClosable ? '' : 'mb-1 '}font-medium leading-none tracking-tight`)">
       <slot />
     </h5>
-    <div v-if="closable" class="flex items-center">
-      <template v-if="!showDismissForever || !allowDismissForever">
-        <button @click="closeAlert">
-          <Icon icon="mdi:close" class="w-4 h-4" />
+    <div v-if="isClosable" class="flex items-center">
+      <template v-if="!isDismissForeverPromptVisible || !canDismissForever">
+        <button type="button" aria-label="Close alert" @click="closeAlert">
+          <Icon icon="mdi:close" class="h-4 w-4" />
         </button>
       </template>
-      <template v-else-if="allowDismissForever">
+      <template v-else>
         <span class="mr-2 text-sm font-semibold">Dismiss forever?</span>
-        <button @click="dismissForever" class="mr-2 text-sm font-medium">Yes</button>
-        <button @click="dismissTemporarily" class="text-sm font-medium">No</button>
+        <button type="button" class="mr-2 text-sm font-medium" @click="dismissForever">
+          Yes
+        </button>
+        <button type="button" class="text-sm font-medium" @click="dismissTemporarily">
+          No
+        </button>
       </template>
     </div>
   </div>

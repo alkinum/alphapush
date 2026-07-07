@@ -1,0 +1,21 @@
+// Shared by the SSE API route and browser-side SSE recovery logic.
+export enum StreamErrorCode {
+  // Authentication errors
+  UNAUTHORIZED = 'SSE_UNAUTHORIZED',
+
+  // Request validation errors
+  MISSING_FINGERPRINT = 'SSE_MISSING_FINGERPRINT',
+  INVALID_FINGERPRINT = 'SSE_INVALID_FINGERPRINT',
+
+  // Stream operation errors
+  SEND_EVENT_FAILED = 'SSE_SEND_EVENT_FAILED',
+  WRITER_CLOSE_FAILED = 'SSE_WRITER_CLOSE_FAILED',
+
+  // Heartbeat errors
+  HEARTBEAT_FAILED = 'SSE_HEARTBEAT_FAILED',
+  MAX_HEARTBEAT_FAILURES = 'SSE_MAX_HEARTBEAT_FAILURES',
+
+  // Connection errors
+  INIT_CONNECTION_FAILED = 'SSE_INIT_CONNECTION_FAILED',
+  CLOSE_EXISTING_FAILED = 'SSE_CLOSE_EXISTING_FAILED',
+}

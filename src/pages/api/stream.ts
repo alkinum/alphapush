@@ -4,29 +4,8 @@ import { getSessionFromContext } from '@/lib/auth';
 import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { subscriptions } from '@/schema';
+import { StreamErrorCode } from '@/types/stream';
 import { logger } from '@/utils/logger';
-
-// Define error codes enum for better error handling
-export enum StreamErrorCode {
-  // Authentication errors
-  UNAUTHORIZED = 'SSE_UNAUTHORIZED',
-
-  // Request validation errors
-  MISSING_FINGERPRINT = 'SSE_MISSING_FINGERPRINT',
-  INVALID_FINGERPRINT = 'SSE_INVALID_FINGERPRINT',
-
-  // Stream operation errors
-  SEND_EVENT_FAILED = 'SSE_SEND_EVENT_FAILED',
-  WRITER_CLOSE_FAILED = 'SSE_WRITER_CLOSE_FAILED',
-
-  // Heartbeat errors
-  HEARTBEAT_FAILED = 'SSE_HEARTBEAT_FAILED',
-  MAX_HEARTBEAT_FAILURES = 'SSE_MAX_HEARTBEAT_FAILURES',
-
-  // Connection errors
-  INIT_CONNECTION_FAILED = 'SSE_INIT_CONNECTION_FAILED',
-  CLOSE_EXISTING_FAILED = 'SSE_CLOSE_EXISTING_FAILED'
-}
 
 // Change the clients map to use a nested structure with array of connections
 const clients = new Map<string, Map<string, Set<{
@@ -411,4 +390,3 @@ export const GET: APIRoute = async (context) => {
     },
   });
 };
-

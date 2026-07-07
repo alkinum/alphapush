@@ -1,27 +1,23 @@
 <script setup lang="ts">
-import { type HTMLAttributes, computed } from 'vue';
+import type { DialogContentEmits, DialogContentProps } from "reka-ui"
+import type { HTMLAttributes } from "vue"
+import { reactiveOmit } from "@vueuse/core"
+import { X } from "@lucide/vue"
 import {
   DialogClose,
   DialogContent,
-  type DialogContentEmits,
-  type DialogContentProps,
   DialogOverlay,
   DialogPortal,
   useForwardPropsEmits,
-} from 'radix-vue';
-import { Cross2Icon } from '@radix-icons/vue';
-import { cn } from '@/utils/shadcn';
+} from "reka-ui"
+import { cn } from '@/utils/shadcn'
 
-const props = defineProps<DialogContentProps & { class?: HTMLAttributes['class'] }>();
-const emits = defineEmits<DialogContentEmits>();
+const props = defineProps<DialogContentProps & { class?: HTMLAttributes["class"] }>()
+const emits = defineEmits<DialogContentEmits>()
 
-const delegatedProps = computed(() => {
-  const { class: _, ...delegated } = props;
+const delegatedProps = reactiveOmit(props, "class")
 
-  return delegated;
-});
-
-const forwarded = useForwardPropsEmits(delegatedProps, emits);
+const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
 
 <template>
@@ -37,20 +33,20 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits);
           )
         "
         v-bind="forwarded"
-        @pointer-down-outside="
-          (event) => {
-            const originalEvent = event.detail.originalEvent;
-            const target = originalEvent.target as HTMLElement;
-            if (originalEvent.offsetX > target.clientWidth || originalEvent.offsetY > target.clientHeight) {
-              event.preventDefault();
-            }
+        @pointer-down-outside="(event) => {
+          const originalEvent = event.detail.originalEvent;
+          const target = originalEvent.target as HTMLElement;
+          if (originalEvent.offsetX > target.clientWidth || originalEvent.offsetY > target.clientHeight) {
+            event.preventDefault();
           }
-        "
+        }"
       >
         <slot />
 
-        <DialogClose class="absolute top-4 right-4 p-0.5 transition-colors rounded-md hover:bg-secondary">
-          <Cross2Icon class="w-4 h-4" />
+        <DialogClose
+          class="absolute top-4 right-4 p-0.5 transition-colors rounded-md hover:bg-secondary"
+        >
+          <X class="w-4 h-4" />
           <span class="sr-only">Close</span>
         </DialogClose>
       </DialogContent>

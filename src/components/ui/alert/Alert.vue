@@ -1,57 +1,59 @@
 <script setup lang="ts">
-import { ref, computed, provide, onMounted } from 'vue';
-import type { HTMLAttributes } from 'vue';
-import { type AlertVariants, alertVariants } from '.';
-import { cn } from '@/utils/shadcn';
+import { computed, onMounted, provide, ref } from "vue"
+import type { HTMLAttributes } from "vue"
+import type { AlertVariants } from "."
+import { cn } from '@/utils/shadcn'
+import { alertVariants } from "."
 
 const props = defineProps<{
-  class?: HTMLAttributes['class'];
-  variant?: AlertVariants['variant'];
-  closable?: boolean;
-  allowDismissForever?: boolean;
-  id?: string;
-}>();
+  class?: HTMLAttributes["class"]
+  variant?: AlertVariants["variant"]
+  closable?: boolean
+  allowDismissForever?: boolean
+  id?: string
+}>()
 
-const isVisible = ref(true);
-const showDismissForever = ref(false);
+const isVisible = ref(true)
+const showDismissForever = ref(false)
 
-const closeAlert = () => {
+function closeAlert() {
   if (props.allowDismissForever) {
-    showDismissForever.value = true;
-  } else {
-    isVisible.value = false;
+    showDismissForever.value = true
   }
-};
+  else {
+    isVisible.value = false
+  }
+}
 
-const dismissForever = () => {
+function dismissForever() {
   if (props.allowDismissForever && props.id) {
-    isVisible.value = false;
-    localStorage.setItem(`alert_${props.id}_dismissed`, 'true');
+    isVisible.value = false
+    localStorage.setItem(`alert_${props.id}_dismissed`, "true")
   }
-};
+}
 
-const dismissTemporarily = () => {
-  isVisible.value = false;
-};
+function dismissTemporarily() {
+  isVisible.value = false
+}
 
-const closable = computed(() => props.closable);
-const allowDismissForever = computed(() => props.allowDismissForever);
+const closable = computed(() => props.closable)
+const allowDismissForever = computed(() => props.allowDismissForever)
 
-provide('closable', closable);
-provide('closeAlert', closeAlert);
-provide('showDismissForever', showDismissForever);
-provide('dismissForever', dismissForever);
-provide('dismissTemporarily', dismissTemporarily);
-provide('allowDismissForever', allowDismissForever);
+provide("closable", closable)
+provide("closeAlert", closeAlert)
+provide("showDismissForever", showDismissForever)
+provide("dismissForever", dismissForever)
+provide("dismissTemporarily", dismissTemporarily)
+provide("allowDismissForever", allowDismissForever)
 
 onMounted(() => {
   if (props.allowDismissForever && props.id) {
-    const isDismissed = localStorage.getItem(`alert_${props.id}_dismissed`) === 'true';
+    const isDismissed = localStorage.getItem(`alert_${props.id}_dismissed`) === "true"
     if (isDismissed) {
-      isVisible.value = false;
+      isVisible.value = false
     }
   }
-});
+})
 </script>
 
 <template>

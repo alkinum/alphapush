@@ -1,7 +1,7 @@
 import { ref, onUnmounted } from 'vue';
 import type { Ref } from 'vue';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
-import { StreamErrorCode } from '@/pages/api/stream';
+import { StreamErrorCode } from '@/types/stream';
 import type { Notification } from '@/types/notification';
 
 // Define types for SSE events

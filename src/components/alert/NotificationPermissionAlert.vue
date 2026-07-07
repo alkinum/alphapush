@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { useToast } from '@/components/ui/sonner/use-toast';
 import { hasActiveWebPushSubscription, repairPushSubscription } from '@/modules/pushSubscription';
 
 type AlertMode = 'permission' | 'repair' | null;

@@ -57,8 +57,6 @@ const props = withDefaults(defineProps<Props>(), {
   categoriesByGroup: () => ({ all: [] }),
 });
 
-console.log('NotificationGroupSwitch props:', props);
-
 const emit = defineEmits<{
   (e: 'filterChange', group: string, category: string): void;
 }>();

@@ -1,7 +1,7 @@
-import { signIn, signOut } from '@/lib/auth';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { signIn, signOut } from '@/lib/auth/client';
+import { toast } from '@/components/ui/sonner/use-toast';
 import { getCombinedFingerprint } from '@/utils/fingerprint';
-import { StreamErrorCode } from '@/pages/api/stream';
+import { StreamErrorCode } from '@/types/stream';
 import { isSafari } from '@/lib/utils';
 
 // Constants
@@ -13,7 +13,7 @@ const SUBSCRIPTION_HEALTH_INTERVAL_MS = 60 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 // State
-let vapidPublicKey: string | null = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
+let vapidPublicKey: string | null = null;
 let deviceFingerprint: string | null = null;
 let droppedSubscriptionRepairPromise: Promise<boolean> | null = null;
 
@@ -22,7 +22,21 @@ interface UserFingerprints {
   [userEmail: string]: string;
 }
 
-const { toast } = useToast();
+function getStoredVapidPublicKey(): string | null {
+  if (typeof localStorage === 'undefined') {
+    return null;
+  }
+
+  return localStorage.getItem(VAPID_KEY_STORAGE_KEY);
+}
+
+function getCachedVapidPublicKey(): string | null {
+  if (!vapidPublicKey) {
+    vapidPublicKey = getStoredVapidPublicKey();
+  }
+
+  return vapidPublicKey;
+}
 
 function isCurrentUserLoggedIn(): boolean {
   return document.body.dataset.userLoggedIn === 'true' && !!document.body.dataset.userEmail;
@@ -86,7 +100,7 @@ export async function getVapidKey(options: { silent?: boolean } = {}): Promise<s
     const serverVapidKey = data.publicKey;
 
     // Check if server key is different from local key
-    const storedVapidKey = localStorage.getItem(VAPID_KEY_STORAGE_KEY);
+    const storedVapidKey = getStoredVapidPublicKey();
     if (serverVapidKey && serverVapidKey !== storedVapidKey) {
       console.debug('Server VAPID key differs from local key, updating...');
 
@@ -541,7 +555,7 @@ export async function initializeWebPush(
 
   try {
     // Always fetch the latest VAPID key from server if forceRefresh is true or vapidPublicKey doesn't exist
-    if (forceRefresh || !vapidPublicKey) {
+    if (forceRefresh || !getCachedVapidPublicKey()) {
       vapidPublicKey = await getVapidKey(options);
     }
 

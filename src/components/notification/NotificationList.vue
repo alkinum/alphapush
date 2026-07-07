@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { useToast } from '@/components/ui/sonner/use-toast';
 import PullToRefresh from '@/components/ui/pull-to-refresh/PullToRefresh.vue';
 import type { Notification } from '@/types/notification';
 
@@ -431,6 +431,7 @@ watch(notifications, (currentNotifications) => {
       </Card>
     </div>
     <DeleteConfirmationDialog
+      v-if="showBatchDeleteDialog"
       :isOpen="showBatchDeleteDialog"
       title="Delete selected notifications"
       :description="selectedDeleteDescription"

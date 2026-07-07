@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { Icon } from '@iconify/vue';
 
 import type { UserRole } from '@/auth';
-import { useToast } from '@/components/ui/toast/use-toast';
+import { useToast } from '@/components/ui/sonner/use-toast';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -542,7 +542,13 @@ defineExpose({ openSettings });
                   <p v-if="pushToken" class="text-xs font-mono break-all">{{ pushToken }}</p>
                   <p v-else class="text-xs text-muted-foreground italic">No push token available</p>
                 </div>
-                <Button @click="copyPushToken" variant="outline" size="icon" :disabled="!pushToken">
+                <Button
+                  @click="copyPushToken"
+                  variant="outline"
+                  size="icon"
+                  :disabled="!pushToken"
+                  aria-label="Copy push token"
+                >
                   <Icon icon="mdi:content-copy" class="h-4 w-4" />
                 </Button>
               </div>
@@ -578,10 +584,15 @@ defineExpose({ openSettings });
                     :type="showMasterKey ? 'text' : 'password'"
                     placeholder="Enter encryption key"
                   />
-                  <Button @click="showMasterKey = !showMasterKey" variant="outline" size="icon">
+                  <Button
+                    @click="showMasterKey = !showMasterKey"
+                    variant="outline"
+                    size="icon"
+                    :aria-label="showMasterKey ? 'Hide encryption key' : 'Show encryption key'"
+                  >
                     <Icon :icon="showMasterKey ? 'mdi:eye' : 'mdi:eye-off'" class="h-4 w-4" />
                   </Button>
-                  <Button @click="saveMasterKey" variant="outline" size="icon">
+                  <Button @click="saveMasterKey" variant="outline" size="icon" aria-label="Save encryption key">
                     <Icon icon="mdi:content-save" class="h-4 w-4" />
                   </Button>
                 </div>
@@ -657,6 +668,7 @@ defineExpose({ openSettings });
                     variant="outline"
                     size="icon"
                     :disabled="!barkFallbackEnabled"
+                    :aria-label="showBarkDeviceKey ? 'Hide Bark device key' : 'Show Bark device key'"
                   >
                     <Icon :icon="showBarkDeviceKey ? 'mdi:eye' : 'mdi:eye-off'" class="h-4 w-4" />
                   </Button>
@@ -737,7 +749,7 @@ defineExpose({ openSettings });
     </SheetContent>
   </Sheet>
 
-  <Dialog v-model:open="showResetVapidDialog">
+  <Dialog v-if="showResetVapidDialog" v-model:open="showResetVapidDialog">
     <DialogContent>
       <DialogHeader>
         <DialogTitle class="mb-4">Warning: Reset VAPID Keys</DialogTitle>
@@ -758,7 +770,7 @@ defineExpose({ openSettings });
     </DialogContent>
   </Dialog>
 
-  <Dialog v-model:open="showResetPushTokenDialog">
+  <Dialog v-if="showResetPushTokenDialog" v-model:open="showResetPushTokenDialog">
     <DialogContent>
       <DialogHeader>
         <DialogTitle class="mb-4">Warning: Reset Push Token</DialogTitle>
