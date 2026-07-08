@@ -51,6 +51,8 @@ AlphaPush is a general-purpose push notification service with a PWA client, base
    GITHUB_CLIENT_SECRET=your_github_client_secret
    ```
 
+   For local development, set the OAuth callback URL in GitHub to `http://localhost:4321/api/auth/callback/github`.
+
 ### Database Configuration
 
 AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
@@ -91,9 +93,15 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
    cp wrangler.template.jsonc wrangler.jsonc
    ```
 
-   Edit `wrangler.jsonc` for your own Cloudflare Pages project. The real `wrangler.jsonc` is ignored by git; only `wrangler.template.jsonc` should be committed.
+   Edit `wrangler.jsonc` for your own Cloudflare Pages project. The tracked template declares the required `DB`, `KV`, and `SESSION` bindings; keep those binding names intact. The real `wrangler.jsonc` is ignored by git; only `wrangler.template.jsonc` should be committed.
 
-7. Setup the environment variables:
+7. Apply migrations to the local D1 database before starting the app:
+
+   ```
+   pnpm run db:migrate:local
+   ```
+
+8. Setup the environment variables:
 
    ```
    DB_ID=your_database_id

@@ -20,7 +20,7 @@ export interface GetSessionOptions {
  * Get the current session from Better Auth
  */
 export async function getSession(request: Request, db: D1Database, options: GetSessionOptions = {}): Promise<AuthSession> {
-  const auth = createAuth(db);
+  const auth = createAuth(db, { baseURL: new URL(request.url).origin });
 
   try {
     const session = await auth.api.getSession({
@@ -64,6 +64,6 @@ export async function requireAuth(context: APIContext) {
 export function isAdmin(session: { user: { email: string; role?: UserRole } } | null): boolean {
   if (!session?.user) return false;
 
-  const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',') || [];
+  const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',').map((email: string) => email.trim()).filter(Boolean) || [];
   return session.user.role === 'admin' || ADMIN_EMAILS.includes(session.user.email);
 }

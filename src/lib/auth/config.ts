@@ -4,12 +4,32 @@ import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
 import * as schema from '@/schema';
 
-const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',') || [];
+const ADMIN_EMAILS = import.meta.env.ADMIN_EMAILS?.split(',').map((email: string) => email.trim()).filter(Boolean) || [];
 const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 180; // 180 days
 const SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 6; // 6 hours
 
-export function createAuth(db: D1Database) {
+interface CreateAuthOptions {
+  baseURL?: string;
+}
+
+export function getGitHubOAuthConfig() {
+  return {
+    clientId: import.meta.env.GITHUB_CLIENT_ID || '',
+    clientSecret: import.meta.env.GITHUB_CLIENT_SECRET || '',
+  };
+}
+
+export function isGitHubOAuthConfigured() {
+  const github = getGitHubOAuthConfig();
+  return !!(github.clientId && github.clientSecret);
+}
+
+export function createAuth(db: D1Database, options: CreateAuthOptions = {}) {
+  const github = getGitHubOAuthConfig();
+  const socialProviders = github.clientId && github.clientSecret ? { github } : undefined;
+
   return betterAuth({
+    baseURL: options.baseURL,
     database: drizzleAdapter(getDb(db), {
       provider: 'sqlite',
       schema: {
@@ -22,12 +42,7 @@ export function createAuth(db: D1Database) {
     emailAndPassword: {
       enabled: false, // We're using OAuth only
     },
-    socialProviders: {
-      github: {
-        clientId: import.meta.env.GITHUB_CLIENT_ID || '',
-        clientSecret: import.meta.env.GITHUB_CLIENT_SECRET || '',
-      },
-    },
+    socialProviders,
     session: {
       expiresIn: SESSION_EXPIRES_IN_SECONDS,
       updateAge: SESSION_UPDATE_AGE_SECONDS,

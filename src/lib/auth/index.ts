@@ -1,5 +1,5 @@
 // Re-export auth configuration
-export { createAuth } from './config';
+export { createAuth, getGitHubOAuthConfig, isGitHubOAuthConfigured } from './config';
 export type { Auth } from './config';
 
 // Re-export server helpers

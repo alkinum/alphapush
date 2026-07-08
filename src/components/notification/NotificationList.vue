@@ -424,10 +424,8 @@ watch(notifications, (currentNotifications) => {
           </div>
         </PullToRefresh>
       </template>
-      <Card v-else>
-        <CardContent class="flex items-center justify-center">
-          <Login />
-        </CardContent>
+      <Card v-else class="w-full mb-4 overflow-hidden">
+        <Login />
       </Card>
     </div>
     <DeleteConfirmationDialog

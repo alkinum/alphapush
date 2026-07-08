@@ -2,6 +2,9 @@ import { defineConfig } from 'astro/config';
 import vue from '@astrojs/vue';
 import cloudflare from '@astrojs/cloudflare';
 import tailwindcss from '@tailwindcss/vite';
+import { existsSync } from 'node:fs';
+
+const cloudflareConfigPath = existsSync('./wrangler.jsonc') ? './wrangler.jsonc' : './wrangler.template.jsonc';
 
 const isVueUsePureAnnotationWarning = (log) => {
   if (typeof log === 'string') {
@@ -15,7 +18,7 @@ const isVueUsePureAnnotationWarning = (log) => {
 export default defineConfig({
   output: 'server',
   adapter: cloudflare({
-    configPath: './wrangler.template.jsonc',
+    configPath: cloudflareConfigPath,
     mode: 'directory',
     functionPerRoute: true,
   }),

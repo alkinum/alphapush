@@ -1,7 +1,7 @@
 <template>
-  <div class="flex flex-col items-center space-y-4 p-6 rounded-lg shadow-md">
-    <p>Login to initialize your AlphaPush</p>
-    <Button type="submit" class="w-full" @click="handleSubmit">
+  <div class="flex w-full flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+    <p class="text-sm font-medium text-foreground sm:text-base">Login to initialize your AlphaPush</p>
+    <Button type="submit" class="w-full sm:w-auto sm:shrink-0" @click="handleSubmit">
       <Icon icon="mdi:github" class="mr-2 h-5 w-5" />
       Login with GitHub
     </Button>

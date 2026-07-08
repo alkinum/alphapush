@@ -3,5 +3,22 @@
   "name": "your-alphapush-pages-project",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-04-15",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "alphapush-prod",
+      "database_id": "your_database_id"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "your_kv_namespace_id"
+    },
+    {
+      "binding": "SESSION",
+      "id": "your_session_kv_namespace_id"
+    }
+  ]
 }

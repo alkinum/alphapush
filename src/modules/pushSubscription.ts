@@ -770,6 +770,11 @@ export function initializePushModule(): void {
       await signIn(provider);
     } catch (error) {
       console.error('Failed to login:', error);
+      toast({
+        title: 'Login failed',
+        description: error instanceof Error ? error.message : 'Unable to start GitHub sign-in. Please try again.',
+        variant: 'destructive',
+      });
     }
   });
 

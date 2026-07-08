@@ -4,15 +4,39 @@ export const authClient = createAuthClient({
   baseURL: typeof window !== 'undefined' ? window.location.origin : '',
 });
 
+type AuthClientError = {
+  message?: string;
+  error?: string;
+  status?: number;
+  statusText?: string;
+};
+
+function getAuthErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const authError = error as AuthClientError;
+    return authError.message || authError.error || authError.statusText;
+  }
+
+  return undefined;
+}
+
 /**
  * Sign in with OAuth provider
  */
 export async function signIn(provider: 'github', callbackURL = getCurrentCallbackURL()) {
   try {
-    await authClient.signIn.social({
+    const result = await authClient.signIn.social({
       provider,
       callbackURL,
     });
+
+    if (result && typeof result === 'object' && 'error' in result && result.error) {
+      throw new Error(getAuthErrorMessage(result.error) || 'Unable to start GitHub sign-in.');
+    }
   } catch (error) {
     console.error('Sign in error:', error);
     throw error;
