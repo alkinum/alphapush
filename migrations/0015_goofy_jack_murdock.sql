@@ -1,0 +1,1 @@
+ALTER TABLE `push_delivery_attempts` ADD `receipt_token` text;

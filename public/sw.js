@@ -198,11 +198,13 @@ async function handlePushEvent(event) {
 
   let options = {
     body: data.body || data.content || 'Open AlphaPush to view this notification.',
-    icon: data.iconUrl || '/icon.png',
+    icon: data.iconUrl || '/icons/icon-192x192.png',
     vibrate: [100, 75, 240],
     data: {
       id: data.id,
       subscriptionId: data.subscriptionId,
+      attemptId: data.attemptId,
+      receiptToken: data.receiptToken,
       category: data.category,
       notification_group: data.notification_group,
       type: data.type,
@@ -310,7 +312,13 @@ self.addEventListener('notificationclick', function (event) {
       if ((event.action === 'approve' || event.action === 'reject') && notificationData.approvalId && notificationData.tempAccessToken) {
         event.waitUntil(
           Promise.allSettled([
-            reportDeliveryEvent(notificationData.id, 'opened', notificationData.subscriptionId),
+            reportDeliveryEvent(
+              notificationData.id,
+              'opened',
+              notificationData.subscriptionId,
+              notificationData.attemptId,
+              notificationData.receiptToken,
+            ),
             markNotificationRead(notificationData.id),
             (async () => {
               try {
@@ -333,6 +341,8 @@ self.addEventListener('notificationclick', function (event) {
     // Token is expired or nearly expired, or action is 'detail'
     setSearchParamIfPresent(url, 'approvalId', notificationData.approvalId);
     setSearchParamIfPresent(url, 'subscriptionId', notificationData.subscriptionId);
+    setSearchParamIfPresent(url, 'attemptId', notificationData.attemptId);
+    setSearchParamIfPresent(url, 'receiptToken', notificationData.receiptToken);
     setSearchParamIfPresent(url, 'action', event.action); // Add action to URL
   }
 
@@ -345,7 +355,7 @@ self.addEventListener('notificationclick', function (event) {
       // Check if the URL has a valid protocol (http or https)
       if (navigateUrl.protocol === 'http:' || navigateUrl.protocol === 'https:') {
         event.notification.close();
-        event.waitUntil(openWindowWithReceipt(navigateUrl.toString(), notificationData.id, notificationData.subscriptionId));
+        event.waitUntil(openWindowWithReceipt(navigateUrl.toString(), notificationData));
         return;
       } else {
         console.warn('Invalid URL protocol:', navigateUrl.protocol);
@@ -359,12 +369,14 @@ self.addEventListener('notificationclick', function (event) {
   if (event.action === 'detail' || !event.action) {
     setSearchParamIfPresent(url, 'notificationId', notificationData.id);
     setSearchParamIfPresent(url, 'subscriptionId', notificationData.subscriptionId);
+    setSearchParamIfPresent(url, 'attemptId', notificationData.attemptId);
+    setSearchParamIfPresent(url, 'receiptToken', notificationData.receiptToken);
     setSearchParamIfPresent(url, 'category', notificationData.category);
     setSearchParamIfPresent(url, 'notification_group', notificationData.notification_group);
   }
 
   event.notification.close();
-  event.waitUntil(openWindowWithReceipt(url.toString(), notificationData.id, notificationData.subscriptionId));
+  event.waitUntil(openWindowWithReceipt(url.toString(), notificationData));
 });
 
 function setSearchParamIfPresent(url, key, value) {
@@ -376,35 +388,50 @@ function setSearchParamIfPresent(url, key, value) {
 async function showNotificationWithReceipt(title, options) {
   await self.registration.showNotification(title, options);
   await Promise.allSettled([
-    reportDeliveryEvent(options?.data?.id, 'displayed', options?.data?.subscriptionId),
+    reportDeliveryEvent(
+      options?.data?.id,
+      'displayed',
+      options?.data?.subscriptionId,
+      options?.data?.attemptId,
+      options?.data?.receiptToken,
+    ),
     updateBadgeFromPayload(options?.data),
+    notifyOpenClients(options?.data),
   ]);
 }
 
 async function showFallbackNotification(data) {
   await showNotificationWithReceipt('New notification', {
     body: 'Open AlphaPush to view the latest notification.',
-    icon: '/icon.png',
+    icon: '/icons/icon-192x192.png',
     data: {
       id: data?.id,
       subscriptionId: data?.subscriptionId,
+      attemptId: data?.attemptId,
+      receiptToken: data?.receiptToken,
       badgeCount: data?.badgeCount ?? data?.badge,
       createdAt: Date.now(),
     },
   });
 }
 
-async function openWindowWithReceipt(url, notificationId, subscriptionId) {
+async function openWindowWithReceipt(url, notificationData) {
   const openWindowPromise = clients.openWindow(url);
   await Promise.allSettled([
-    reportDeliveryEvent(notificationId, 'opened', subscriptionId),
-    markNotificationRead(notificationId),
+    reportDeliveryEvent(
+      notificationData.id,
+      'opened',
+      notificationData.subscriptionId,
+      notificationData.attemptId,
+      notificationData.receiptToken,
+    ),
+    markNotificationRead(notificationData.id),
     openWindowPromise,
   ]);
   return openWindowPromise;
 }
 
-async function reportDeliveryEvent(notificationId, eventType, subscriptionId) {
+async function reportDeliveryEvent(notificationId, eventType, subscriptionId, attemptId, receiptToken) {
   if (!notificationId) {
     return;
   }
@@ -419,11 +446,24 @@ async function reportDeliveryEvent(notificationId, eventType, subscriptionId) {
       body: JSON.stringify({
         notificationId,
         subscriptionId,
+        attemptId,
+        receiptToken,
         event: eventType,
       }),
     });
   } catch (error) {
     console.debug('Failed to report notification delivery event:', error);
+  }
+}
+
+async function notifyOpenClients(notification) {
+  if (!notification?.id) {
+    return;
+  }
+
+  const windowClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+  for (const client of windowClients) {
+    client.postMessage({ type: 'alphapush:push-received', notification });
   }
 }
 

@@ -24,7 +24,14 @@ export const GET: APIRoute = async (context) => {
     const db = getDb(env.DB);
     const notificationService = new NotificationService(db);
 
-    let categoriesByGroup: Record<string, any[]> = {};
+    type CategoryResult = {
+      id: string;
+      name: string;
+      count: unknown;
+      groups?: string[];
+      groupIds?: string[];
+    };
+    const categoriesByGroup: Record<string, CategoryResult[]> = {};
 
     if (groupParam === 'all') {
       // Get all categories grouped by their group
@@ -41,7 +48,7 @@ export const GET: APIRoute = async (context) => {
               categoriesByGroup[groupId] = [];
             }
             // Only add if not already present
-            if (!categoriesByGroup[groupId].some((c: any) => c.id === category.id)) {
+            if (!categoriesByGroup[groupId].some((storedCategory) => storedCategory.id === category.id)) {
               categoriesByGroup[groupId].push(category);
             }
           });

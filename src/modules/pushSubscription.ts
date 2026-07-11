@@ -16,6 +16,12 @@ const SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 let vapidPublicKey: string | null = null;
 let deviceFingerprint: string | null = null;
 let droppedSubscriptionRepairPromise: Promise<boolean> | null = null;
+let serviceWorkerMessageListenerRegistered = false;
+
+type AlphaPushWindow = Window & {
+  __alphaPushModuleInitialized?: boolean;
+  __alphaPushServiceWorkerRegistrationStarted?: boolean;
+};
 
 // User fingerprints map: { userEmail: fingerprint }
 interface UserFingerprints {
@@ -151,7 +157,7 @@ export async function getVapidKey(options: { silent?: boolean } = {}): Promise<s
  * Helper function to convert ArrayBuffer to URL-safe Base64
  */
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(buffer) as unknown as number[]));
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
@@ -688,6 +694,23 @@ export async function handleSSEConnectionError(error: string, code: StreamErrorC
  */
 export function registerServiceWorker(): void {
   if ('serviceWorker' in navigator) {
+    const appWindow = window as AlphaPushWindow;
+    if (appWindow.__alphaPushServiceWorkerRegistrationStarted) {
+      return;
+    }
+    appWindow.__alphaPushServiceWorkerRegistrationStarted = true;
+
+    if (!serviceWorkerMessageListenerRegistered) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'alphapush:push-received' && event.data.notification) {
+          document.dispatchEvent(new CustomEvent('alphapush:new-notification', {
+            detail: { notification: event.data.notification, source: 'service-worker' },
+          }));
+        }
+      });
+      serviceWorkerMessageListenerRegistered = true;
+    }
+
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('/sw.js').then(
         function (registration) {
@@ -744,6 +767,12 @@ export async function cleanupOnLogout(): Promise<void> {
  * If keys differ, cancels old subscription and re-initializes web push.
  */
 export function initializePushModule(): void {
+  const appWindow = window as AlphaPushWindow;
+  if (appWindow.__alphaPushModuleInitialized) {
+    return;
+  }
+  appWindow.__alphaPushModuleInitialized = true;
+
   // Check if user is logged in
   const isLoggedIn = isCurrentUserLoggedIn();
   const userEmail = document.body.getAttribute('data-user-email');

@@ -18,13 +18,20 @@ export interface DeliveryAttemptCreateData {
   userEmail: string;
 }
 
+export interface DeliveryRetryEnv {
+  APP_URL?: string;
+  PUSH_ACK_TIMEOUT_SECONDS?: string;
+  PUSH_NO_ACK_FAILURE_THRESHOLD?: string;
+  PUSH_DELIVERY_PROCESSING_STALE_SECONDS?: string;
+}
+
 export class DeliveryRetryService {
   private db: ReturnType<typeof getDb>;
   private ackTimeoutSeconds: number;
   private noAckFailureThreshold: number;
   private processingStaleSeconds: number;
 
-  constructor(db: ReturnType<typeof getDb>, private readonly env: any = {}) {
+  constructor(db: ReturnType<typeof getDb>, private readonly env: DeliveryRetryEnv = {}) {
     this.db = db;
     this.ackTimeoutSeconds = getPositiveInteger(env.PUSH_ACK_TIMEOUT_SECONDS, DEFAULT_ACK_TIMEOUT_SECONDS);
     this.noAckFailureThreshold = getPositiveInteger(
@@ -40,6 +47,7 @@ export class DeliveryRetryService {
   async createAttempt(data: DeliveryAttemptCreateData) {
     const sentAt = new Date();
     const ackDeadlineAt = new Date(sentAt.getTime() + this.ackTimeoutSeconds * 1000);
+    const receiptToken = crypto.randomUUID();
 
     return await this.db
       .insert(pushDeliveryAttempts)
@@ -47,6 +55,7 @@ export class DeliveryRetryService {
         notificationId: data.notificationId,
         subscriptionId: data.subscriptionId,
         userEmail: data.userEmail,
+        receiptToken,
         sentAt,
         ackDeadlineAt,
       })
@@ -58,7 +67,8 @@ export class DeliveryRetryService {
     notificationId: string,
     userEmail: string,
     event: DeliveryAckEvent,
-    subscriptionId?: string
+    subscriptionId?: string,
+    attemptId?: string
   ): Promise<boolean> {
     if (!subscriptionId) {
       return false;
@@ -81,15 +91,21 @@ export class DeliveryRetryService {
           updatedAt: now,
         };
 
+    const conditions = [
+      eq(pushDeliveryAttempts.notificationId, notificationId),
+      eq(pushDeliveryAttempts.subscriptionId, subscriptionId),
+      eq(pushDeliveryAttempts.userEmail, userEmail),
+      isNull(pushDeliveryAttempts.ackedAt),
+    ];
+
+    if (attemptId) {
+      conditions.push(eq(pushDeliveryAttempts.id, attemptId));
+    }
+
     const result = await this.db
       .update(pushDeliveryAttempts)
       .set(updateData)
-      .where(and(
-        eq(pushDeliveryAttempts.notificationId, notificationId),
-        eq(pushDeliveryAttempts.subscriptionId, subscriptionId),
-        eq(pushDeliveryAttempts.userEmail, userEmail),
-        isNull(pushDeliveryAttempts.ackedAt)
-      ))
+      .where(and(...conditions))
       .returning({ id: pushDeliveryAttempts.id })
       .get();
 
@@ -105,6 +121,38 @@ export class DeliveryRetryService {
     }
 
     return !!result;
+  }
+
+  async resolveReceiptUserEmail(
+    notificationId: string,
+    subscriptionId: string,
+    attemptId: string,
+    receiptToken: string
+  ): Promise<string | null> {
+    const attempt = await this.db
+      .select({ userEmail: pushDeliveryAttempts.userEmail })
+      .from(pushDeliveryAttempts)
+      .where(and(
+        eq(pushDeliveryAttempts.id, attemptId),
+        eq(pushDeliveryAttempts.notificationId, notificationId),
+        eq(pushDeliveryAttempts.subscriptionId, subscriptionId),
+        eq(pushDeliveryAttempts.receiptToken, receiptToken)
+      ))
+      .get();
+
+    return attempt?.userEmail || null;
+  }
+
+  async markAttemptTerminal(attemptId: string, status: string, reason?: string): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(pushDeliveryAttempts)
+      .set({
+        status,
+        fallbackReason: reason || null,
+        updatedAt: now,
+      })
+      .where(and(eq(pushDeliveryAttempts.id, attemptId), isNull(pushDeliveryAttempts.ackedAt)));
   }
 
   async shouldSendImmediateFallback(subscription: typeof subscriptions.$inferSelect): Promise<boolean> {

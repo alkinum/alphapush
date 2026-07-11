@@ -1,5 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
+import type { D1Database } from '@cloudflare/workers-types';
 import { createId } from '@paralleldrive/cuid2';
 import { getDb } from '@/db';
 import { userCredentials, subscriptions, pushNotifications } from '@/schema';
@@ -7,13 +8,22 @@ import { WebPushService } from '@/services/webPushService';
 import { SubscriptionService } from '@/services/subscriptionService';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
 import { StreamService } from '@/services/streamService';
-import { DeliveryRetryService } from '@/services/deliveryRetryService';
+import { DeliveryRetryService, type DeliveryRetryEnv } from '@/services/deliveryRetryService';
 import type { Notification } from '@/types/notification';
 import { isLocalNetworkUrl } from '@/utils/network';
 import { logger } from '@/utils/logger';
 
-export const MAX_MESSAGE_SIZE = 4096; // 4KB in bytes
+// Leave room for Web Push encryption framing and provider-specific overhead.
+export const MAX_MESSAGE_SIZE = 3800;
 const DEFAULT_PUSH_TTL_SECONDS = 60 * 60 * 24 * 28;
+
+export type PushServiceEnv = DeliveryRetryEnv & {
+  DB: D1Database;
+  KV: {
+    put(key: string, value: string, options: { expirationTtl: number }): Promise<void>;
+  };
+  APP_URL?: string;
+};
 
 export interface PushResult {
   success: boolean;
@@ -54,10 +64,10 @@ export function validateWebhookUrl(url: string): { isValid: boolean; error?: str
 
 export class PushService {
   private db: ReturnType<typeof getDb>;
-  private env: any;
+  private env: PushServiceEnv;
   private streamService: StreamService;
 
-  constructor(db: ReturnType<typeof getDb>, env: any) {
+  constructor(db: ReturnType<typeof getDb>, env: PushServiceEnv) {
     this.db = db;
     this.env = env;
     this.streamService = new StreamService();
@@ -69,7 +79,7 @@ export class PushService {
    * @returns User or null if token is invalid
    */
   async validatePushToken(pushToken: string) {
-    logger.debug(`Validating push token: ${pushToken}`);
+    logger.debug('Validating push token');
     return await this.db.select().from(userCredentials).where(eq(userCredentials.pushToken, pushToken)).get();
   }
 
@@ -136,6 +146,8 @@ export class PushService {
       approvalState?: string;
       badgeCount?: number;
       subscriptionId?: string;
+      attemptId?: string;
+      receiptToken?: string;
     } = {}
   ): string {
     // Get the app URL from environment, fallback to current origin
@@ -154,6 +166,14 @@ export class PushService {
 
     if (options.subscriptionId) {
       url.searchParams.set('subscriptionId', options.subscriptionId);
+    }
+
+    if (options.attemptId) {
+      url.searchParams.set('attemptId', options.attemptId);
+    }
+
+    if (options.receiptToken) {
+      url.searchParams.set('receiptToken', options.receiptToken);
     }
 
     if (notification.categoryId) {
@@ -208,6 +228,8 @@ export class PushService {
       if (options.subscriptionId) {
         approveUrl.searchParams.set('subscriptionId', options.subscriptionId);
       }
+      if (options.attemptId) approveUrl.searchParams.set('attemptId', options.attemptId);
+      if (options.receiptToken) approveUrl.searchParams.set('receiptToken', options.receiptToken);
       approveUrl.searchParams.set('approvalId', options.approvalId);
       approveUrl.searchParams.set('action', 'approve');
       approveUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
@@ -226,6 +248,8 @@ export class PushService {
       if (options.subscriptionId) {
         rejectUrl.searchParams.set('subscriptionId', options.subscriptionId);
       }
+      if (options.attemptId) rejectUrl.searchParams.set('attemptId', options.attemptId);
+      if (options.receiptToken) rejectUrl.searchParams.set('receiptToken', options.receiptToken);
       rejectUrl.searchParams.set('approvalId', options.approvalId);
       rejectUrl.searchParams.set('action', 'reject');
       rejectUrl.searchParams.set('tempAccessToken', options.tempAccessToken);
@@ -259,6 +283,8 @@ export class PushService {
       if (options.subscriptionId) {
         detailUrl.searchParams.set('subscriptionId', options.subscriptionId);
       }
+      if (options.attemptId) detailUrl.searchParams.set('attemptId', options.attemptId);
+      if (options.receiptToken) detailUrl.searchParams.set('receiptToken', options.receiptToken);
       detailUrl.searchParams.set('action', 'detail');
       if (notification.type) {
         detailUrl.searchParams.set('type', notification.type);
@@ -293,6 +319,8 @@ export class PushService {
         data: {
           id: notification.id,
           subscriptionId: options.subscriptionId,
+          attemptId: options.attemptId,
+          receiptToken: options.receiptToken,
           category: notification.categoryId,
           notification_group: notification.groupId,
           type: notification.type,
@@ -383,20 +411,24 @@ export class PushService {
 
       const sendDeviceFallback = async (
         sub: typeof subscriptions.$inferSelect,
-        reason: string
+        reason: string,
+        existingAttemptId?: string
       ): Promise<void> => {
         if (!sub.barkFallbackEnabled || !sub.barkDeviceKey) {
+          if (existingAttemptId) {
+            await deliveryRetryService.markAttemptTerminal(existingAttemptId, reason, reason);
+          }
           return;
         }
 
         try {
-          const attempt = await deliveryRetryService.createAttempt({
-            notificationId: notification.id,
-            subscriptionId: sub.id,
-            userEmail: user.email,
-          });
+          const attemptId = existingAttemptId || (await deliveryRetryService.createAttempt({
+              notificationId: notification.id,
+              subscriptionId: sub.id,
+              userEmail: user.email,
+            })).id;
           const sent = await deliveryRetryService.sendFallbackForAttempt(
-            attempt.id,
+            attemptId,
             notification,
             sub,
             reason,
@@ -438,11 +470,30 @@ export class PushService {
             reason,
           });
           subscriptionsToRemove.add(sub.id);
+          await sendDeviceFallback(sub, 'stored-subscription-invalid');
           continue;
         }
 
+        let attempt: Awaited<ReturnType<DeliveryRetryService['createAttempt']>> | undefined;
         try {
-          const deliveryOptions = { ...options, badgeCount, subscriptionId: sub.id };
+          attempt = await deliveryRetryService.createAttempt({
+            notificationId: notification.id,
+            subscriptionId: sub.id,
+            userEmail: user.email,
+          });
+        } catch (error) {
+          // A tracking write must not prevent the actual notification from being sent.
+          logger.error(`Failed to create delivery attempt for subscription ${sub.id}:`, error);
+        }
+
+        try {
+          const deliveryOptions = {
+            ...options,
+            badgeCount,
+            subscriptionId: sub.id,
+            attemptId: attempt?.id,
+            receiptToken: attempt?.receiptToken || undefined,
+          };
 
           // Format message based on subscription type (Safari vs standard)
           message = sub.isSafari
@@ -454,6 +505,8 @@ export class PushService {
               tempAccessToken: options.tempAccessToken,
               badgeCount,
               subscriptionId: sub.id,
+              attemptId: attempt?.id,
+              receiptToken: attempt?.receiptToken || undefined,
             });
 
           // Check message size
@@ -463,7 +516,7 @@ export class PushService {
               subscriptionId: sub.id,
               reason: 'Message size exceeds 4KB limit',
             });
-            await sendDeviceFallback(sub, 'web-push-message-too-large');
+            await sendDeviceFallback(sub, 'web-push-message-too-large', attempt?.id);
             continue;
           }
         } catch (error) {
@@ -472,7 +525,7 @@ export class PushService {
             subscriptionId: sub.id,
             reason: error instanceof Error ? error.message : 'Invalid subscription payload',
           });
-          await sendDeviceFallback(sub, 'web-push-message-prepare-failed');
+          await sendDeviceFallback(sub, 'web-push-message-prepare-failed', attempt?.id);
 
           continue;
         }
@@ -481,7 +534,7 @@ export class PushService {
           logger.debug(`Sending notification to subscription: ${sub.id} (isSafari: ${sub.isSafari})`);
           await webPushService.sendNotification(subscription, message, {
             ttl: DEFAULT_PUSH_TTL_SECONDS,
-            topic: options.topic || 'Default',
+            topic: getPushTopic(options.topic, notification.id),
             urgency: options.urgency || 'normal',
           });
         } catch (error) {
@@ -498,6 +551,7 @@ export class PushService {
               reason,
             });
             subscriptionsToRemove.add(sub.id);
+            await sendDeviceFallback(sub, 'web-push-subscription-expired', attempt?.id);
             continue;
           }
 
@@ -509,7 +563,8 @@ export class PushService {
 
           await sendDeviceFallback(
             sub,
-            'web-push-send-failed'
+            'web-push-send-failed',
+            attempt?.id
           );
 
           try {
@@ -531,18 +586,6 @@ export class PushService {
 
         successfulPushes += 1;
 
-        let attemptId: string | undefined;
-        try {
-          const attempt = await deliveryRetryService.createAttempt({
-            notificationId: notification.id,
-            subscriptionId: sub.id,
-            userEmail: user.email,
-          });
-          attemptId = attempt.id;
-        } catch (error) {
-          logger.error(`Failed to create delivery attempt for subscription ${sub.id}:`, error);
-        }
-
         try {
           await this.db
             .update(subscriptions)
@@ -558,10 +601,10 @@ export class PushService {
         }
 
         try {
-          if (attemptId && await deliveryRetryService.shouldSendImmediateFallback(sub)) {
+          if (attempt?.id && await deliveryRetryService.shouldSendImmediateFallback(sub)) {
             const reason = sub.barkFallbackAlways ? 'always' : 'subscription-unhealthy';
             const sent = await deliveryRetryService.sendFallbackForAttempt(
-              attemptId,
+              attempt.id,
               notification,
               sub,
               reason,
@@ -626,8 +669,7 @@ export class PushService {
         });
       }
 
-      const onlyIgnoredSubscriptionFailures = ignoredPushFailures.length > 0 && failedPushes.length === 0;
-      const deliverySucceeded = successfulPushes > 0 || barkFallbackSent || onlyIgnoredSubscriptionFailures;
+      const deliverySucceeded = successfulPushes > 0 || barkFallbackSent;
       if (!deliverySucceeded) {
         const error = getNoDeliveryError(userSubscriptions.length, failedPushes, barkFallbackError);
         logger.warn(`No push delivery channel succeeded for notification: ${notification.id}`, {
@@ -675,8 +717,7 @@ export class PushService {
       logger.error(`Error in push service for notification: ${notification.id}:`, error);
       const deliverySucceeded =
         successfulPushes > 0 ||
-        barkFallbackSent ||
-        (ignoredPushFailures.length > 0 && failedPushes.length === 0);
+        barkFallbackSent;
 
       return {
         success: deliverySucceeded,
@@ -712,6 +753,15 @@ function getPushErrorReason(error: unknown, fallback: string): string {
 
 function isExpiredPushSubscriptionStatusCode(statusCode: number | null): boolean {
   return statusCode === 404 || statusCode === 410;
+}
+
+function getPushTopic(topic: string | undefined, notificationId: string): string {
+  const explicitTopic = topic?.trim();
+  if (explicitTopic && /^[A-Za-z0-9_-]{1,32}$/.test(explicitTopic)) {
+    return explicitTopic;
+  }
+
+  return notificationId.slice(0, 32);
 }
 
 function parseStoredPushSubscription(subscriptionJson: string): PushSubscription {

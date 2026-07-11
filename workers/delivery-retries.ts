@@ -53,7 +53,7 @@ export default {
       return jsonResponse({ error: configError }, 503);
     }
 
-    if (!isAuthorized(request, env)) {
+    if (!await isAuthorized(request, env)) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
@@ -159,10 +159,23 @@ function getConfigError(env: Env): string | null {
   return null;
 }
 
-function isAuthorized(request: Request, env: Env): boolean {
+async function isAuthorized(request: Request, env: Env): Promise<boolean> {
   const authorization = request.headers.get('Authorization') || '';
   const cronSecret = request.headers.get('x-cron-secret') || '';
-  return authorization === `Bearer ${env.DELIVERY_RETRY_SECRET}` || cronSecret === env.DELIVERY_RETRY_SECRET;
+  return await secretsEqual(authorization, `Bearer ${env.DELIVERY_RETRY_SECRET}`) ||
+    await secretsEqual(cronSecret, env.DELIVERY_RETRY_SECRET);
+}
+
+async function secretsEqual(provided: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(provided)),
+    crypto.subtle.digest('SHA-256', encoder.encode(expected)),
+  ]);
+  const subtle = crypto.subtle as SubtleCrypto & {
+    timingSafeEqual(a: ArrayBuffer | ArrayBufferView, b: ArrayBuffer | ArrayBufferView): boolean;
+  };
+  return subtle.timingSafeEqual(providedHash, expectedHash);
 }
 
 async function parseRetryResponse(response: Response): Promise<DeliveryRetryResult> {

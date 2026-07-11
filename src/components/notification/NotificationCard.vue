@@ -311,7 +311,6 @@ const approvalState = ref(props.notification.approvalState);
 
 const showApprovalButtons = computed(() => isApprovalProcess.value && approvalState.value === 'pending');
 const isUnread = computed(() => !props.notification.readAt);
-
 const handleApprove = async () => {
   await updateApprovalState('approved');
 };
@@ -339,11 +338,11 @@ const updateApprovalState = async (state: 'approved' | 'rejected') => {
       const errorResponse: { error?: string } = await response.json();
       throw new Error(errorResponse.error || 'Failed to update approval state');
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating approval state:', error);
     toast({
       title: 'Error',
-      description: `Failed to update approval state: ${error.message}`,
+      description: `Failed to update approval state: ${error instanceof Error ? error.message : 'Unknown error'}`,
       variant: 'destructive',
     });
   }
@@ -366,6 +365,8 @@ onMounted(async () => {
       url.searchParams.delete('notificationId');
       url.searchParams.delete('category');
       url.searchParams.delete('notification_group');
+      url.searchParams.delete('attemptId');
+      url.searchParams.delete('receiptToken');
       window.history.replaceState({}, '', url);
     }
 

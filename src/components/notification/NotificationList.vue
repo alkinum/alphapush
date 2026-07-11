@@ -47,6 +47,7 @@ const selectionMode = ref(false);
 const selectedNotificationIds = ref<Set<string>>(new Set());
 const showBatchDeleteDialog = ref(false);
 const isDeletingSelected = ref(false);
+let visibilitySyncInterval: number | null = null;
 const selectedCount = computed(() => selectedNotificationIds.value.size);
 const selectedDeleteDescription = computed(() => {
   const count = selectedCount.value;
@@ -239,6 +240,21 @@ const handleNotificationsRead = (event: Event) => {
   markNotificationsReadLocally(detail.notificationIds, detail.readAt, !!detail.all);
 };
 
+const handleServiceWorkerNotification = (event: Event) => {
+  const detail = (event as CustomEvent<{ notification?: Notification; source?: string }>).detail;
+  if (detail?.source !== 'service-worker' || !detail.notification?.id) {
+    return;
+  }
+
+  processNotificationFromSSE(detail.notification);
+  handleNewNotification(
+    detail.notification,
+    currentGroup,
+    currentCategory,
+    customSwitchToNotificationContext
+  );
+};
+
 // Fetch notification details by ID
 const handleNotificationIdFromRoute = (notificationId: string) => {
   console.log(`Found notificationId in page data: ${notificationId}`);
@@ -278,6 +294,12 @@ const handleRefresh = async () => {
   }
 };
 
+const syncVisibleNotifications = () => {
+  if (document.visibilityState === 'visible' && userEmail.value) {
+    void fetchNotifications(1, currentGroup.value, currentCategory.value);
+  }
+};
+
 onMounted(() => {
   if (userEmail.value) {
     // Initialize known filters
@@ -297,6 +319,9 @@ onMounted(() => {
     // Setup reconnect listener for SSE
     document.addEventListener('reconnectSSE', handleReconnectSSE as EventListener);
     document.addEventListener('alphapush:notifications-read', handleNotificationsRead as EventListener);
+    document.addEventListener('alphapush:new-notification', handleServiceWorkerNotification as EventListener);
+    window.addEventListener('focus', syncVisibleNotifications);
+    visibilitySyncInterval = window.setInterval(syncVisibleNotifications, 60_000);
 
     // Entering the app marks currently visible notifications as read.
     markNotificationsReadLocally(undefined, new Date(), true);
@@ -316,6 +341,12 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll);
   document.removeEventListener('reconnectSSE', handleReconnectSSE as EventListener);
   document.removeEventListener('alphapush:notifications-read', handleNotificationsRead as EventListener);
+  document.removeEventListener('alphapush:new-notification', handleServiceWorkerNotification as EventListener);
+  window.removeEventListener('focus', syncVisibleNotifications);
+  if (visibilitySyncInterval !== null) {
+    window.clearInterval(visibilitySyncInterval);
+    visibilitySyncInterval = null;
+  }
 });
 
 // Watch for user changes

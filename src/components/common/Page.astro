@@ -30,6 +30,8 @@ const isMobile = isMobileDevice(userAgent);
 const url = new URL(Astro.request.url);
 const notificationId = url.searchParams.get('notificationId');
 const subscriptionId = url.searchParams.get('subscriptionId');
+const attemptId = url.searchParams.get('attemptId');
+const receiptToken = url.searchParams.get('receiptToken');
 ---
 
 <html class="dark" lang="en">
@@ -41,6 +43,7 @@ const subscriptionId = url.searchParams.get('subscriptionId');
     <title>AlphaPush</title>
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#09090B" />
+    <meta name="referrer" content="no-referrer" />
     <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
@@ -53,6 +56,8 @@ const subscriptionId = url.searchParams.get('subscriptionId');
     data-user-email={userEmail}
     data-notification-id={notificationId || ''}
     data-subscription-id={subscriptionId || ''}
+    data-attempt-id={attemptId || ''}
+    data-receipt-token={receiptToken || ''}
   >
     <div class="container mx-auto max-w-[720px] px-4 sm:px-6 flex flex-col min-h-screen w-full">
       <Header />

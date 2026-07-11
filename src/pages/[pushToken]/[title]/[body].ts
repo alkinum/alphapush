@@ -21,14 +21,14 @@ import { logger } from '@/utils/logger';
  * - isArchive: Whether to archive the notification
  */
 export const GET: APIRoute = async ({ params, request }) => {
-  logger.debug(`Request received to /[pushToken]/[title]/[body] endpoint: ${request.url}`);
+  logger.debug('Bark-compatible titled push request received');
 
   try {
     const { pushToken, title, body } = params;
-    logger.debug(`Params extracted: pushToken=${pushToken}, title=${title}, body=${body}`);
+    logger.debug('Bark-compatible titled push parameters parsed', { hasToken: !!pushToken, hasTitle: !!title, hasBody: !!body });
 
     if (!pushToken || !title || !body) {
-      logger.error(`Missing required parameters: pushToken=${pushToken}, title=${title}, body=${body}`);
+      logger.error('Missing required Bark-compatible titled push parameters', { hasToken: !!pushToken, hasTitle: !!title, hasBody: !!body });
       return new Response(JSON.stringify({ code: 400, message: 'Missing required parameters' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -85,7 +85,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     }
 
     // Process the push notification
-    logger.debug(`Processing push for token: ${pushToken}`);
+    logger.debug('Processing Bark-compatible titled push');
     const db = getDb(env.DB);
     const barkService = new BarkEndpointService(db, env);
     const result = await barkService.processBarkPush(pushToken, barkParams);

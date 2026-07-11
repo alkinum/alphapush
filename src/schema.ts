@@ -156,6 +156,7 @@ export const pushDeliveryAttempts = sqliteTable('push_delivery_attempts', {
     .notNull()
     .references(() => subscriptions.id, { onDelete: 'cascade' }),
   userEmail: text('user_email').notNull(),
+  receiptToken: text('receipt_token'),
   sentAt: integer('sent_at', { mode: 'timestamp' }).notNull(),
   ackDeadlineAt: integer('ack_deadline_at', { mode: 'timestamp' }).notNull(),
   displayedAt: integer('displayed_at', { mode: 'timestamp' }),

@@ -159,8 +159,8 @@ export const PUT: APIRoute = async (context) => {
     const userPreferenceService = new UserPreferenceService(env.DB);
 
     // Parse request body
-    const body = await context.request.json();
-    const { key, value } = body as { key: keyof UserPreference; value: any };
+    const body = await context.request.json() as { key?: keyof UserPreference; value?: unknown };
+    const { key, value } = body;
 
     if (!key || !preferenceKeys.has(key)) {
       return jsonResponse({ error: 'Missing or unsupported preference key' }, 400);

@@ -9,6 +9,8 @@ import { logger } from '@/utils/logger';
 interface DeliveryReceiptBody {
   notificationId?: string;
   subscriptionId?: string;
+  attemptId?: string;
+  receiptToken?: string;
   event?: NotificationDeliveryEvent;
 }
 
@@ -23,11 +25,6 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 export const POST: APIRoute = async (context) => {
   try {
-    const session = await getSessionFromContext(context);
-    if (!session?.user?.email) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
-    }
-
     const body = (await context.request.json()) as DeliveryReceiptBody;
     const notificationId = typeof body.notificationId === 'string' ? body.notificationId.trim() : '';
     const event = body.event;
@@ -36,21 +33,40 @@ export const POST: APIRoute = async (context) => {
       return jsonResponse({ error: 'Invalid delivery receipt' }, 400);
     }
 
+    const subscriptionId = typeof body.subscriptionId === 'string' ? body.subscriptionId.trim() : '';
+    const attemptId = typeof body.attemptId === 'string' ? body.attemptId.trim() : '';
+    const receiptToken = typeof body.receiptToken === 'string' ? body.receiptToken.trim() : '';
     const db = getDb(env.DB);
+    const deliveryRetryService = new DeliveryRetryService(db, env);
+    const session = await getSessionFromContext(context);
+    let userEmail = session?.user?.email || null;
+
+    if (subscriptionId && attemptId && receiptToken) {
+      userEmail = await deliveryRetryService.resolveReceiptUserEmail(
+        notificationId,
+        subscriptionId,
+        attemptId,
+        receiptToken
+      ) || userEmail;
+    }
+
+    if (!userEmail) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
+    }
+
     const notificationService = new NotificationService(db);
-    const updated = await notificationService.recordDeliveryEvent(notificationId, session.user.email, event);
+    const updated = await notificationService.recordDeliveryEvent(notificationId, userEmail, event);
 
     if (!updated) {
       return jsonResponse({ error: 'Notification not found' }, 404);
     }
 
-    const subscriptionId = typeof body.subscriptionId === 'string' ? body.subscriptionId.trim() : '';
-    const deliveryRetryService = new DeliveryRetryService(db, env);
     const attemptUpdated = await deliveryRetryService.recordAck(
       notificationId,
-      session.user.email,
+      userEmail,
       event,
-      subscriptionId || undefined
+      subscriptionId || undefined,
+      attemptId || undefined
     );
 
     return jsonResponse({ success: true, attemptUpdated });

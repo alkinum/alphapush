@@ -15,7 +15,7 @@ const clients = new Map<string, Map<string, Set<{
   heartbeatFailed?: boolean; // Track if heartbeat has failed for this connection
 }>>>();
 
-export function sendSSEvent(userEmail: string, event: string, data: any) {
+export function sendSSEvent(userEmail: string, event: string, data: unknown) {
   // Get the user's client map
   const userClients = clients.get(userEmail);
   if (!userClients || userClients.size === 0) {
@@ -37,7 +37,12 @@ export function sendSSEvent(userEmail: string, event: string, data: any) {
   const deviceFailures = new Map<string, number>();
 
   // Send to all connections for all devices
-  const sendPromises: Promise<any>[] = [];
+  const sendPromises: Array<Promise<{
+    success: boolean;
+    deviceFingerprint: string;
+    connectionId: string;
+    error?: unknown;
+  }>> = [];
 
   for (const [deviceFingerprint, connections] of userClients.entries()) {
     // Skip if no connections for this device
@@ -105,7 +110,7 @@ export function sendSSEvent(userEmail: string, event: string, data: any) {
   }
 
   // Handle results and clean up as needed
-  Promise.allSettled(sendPromises).then(() => {
+  void Promise.allSettled(sendPromises).then(() => {
     // Clean up devices with no connections
     let emptyDevices = 0;
     for (const [deviceFingerprint, connections] of userClients.entries()) {

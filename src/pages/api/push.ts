@@ -20,7 +20,7 @@ interface FrontmatterParams {
   webhook_url?: string;
   topic?: string;
   navigate_url?: string;
-  extra?: Record<string, any>;
+  extra?: Record<string, unknown>;
 }
 
 interface PushBody {
@@ -35,8 +35,9 @@ interface PushBody {
   icon_url?: string;
   type?: string;
   webhook_url?: string;
+  topic?: string;
   navigate_url?: string;
-  extra?: Record<string, any>;
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -107,7 +108,7 @@ function parseMarkdownHeader(content: string): { data: FrontmatterParams; conten
  */
 function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
   // Create extra object for Bark-specific parameters that don't have direct mappings
-  const extra: Record<string, any> = {};
+  const extra: Record<string, unknown> = {};
 
   if (barkBody.badge) extra.badge = barkBody.badge;
   if (barkBody.sound) extra.sound = barkBody.sound;
@@ -139,8 +140,8 @@ function convertBarkToPushBody(barkBody: BarkPushBody): PushBody {
  * @param body Request body
  * @returns True if the request is in Bark format
  */
-function isBarkFormat(body: any): body is BarkPushBody {
-  return body && typeof body === 'object' &&
+function isBarkFormat(body: unknown): body is BarkPushBody {
+  return !!body && typeof body === 'object' &&
     'device_key' in body &&
     'body' in body &&
     typeof body.body === 'string';
@@ -150,8 +151,7 @@ export const POST: APIRoute = async ({ request }) => {
   logger.debug('Push API request received');
 
   try {
-    const requestBody = await request.json();
-    logger.debug('Request body received:', requestBody);
+    const requestBody: unknown = await request.json();
 
     // Detect if the request is in Bark API V2 format and convert if needed
     let body: PushBody;
@@ -181,7 +181,7 @@ export const POST: APIRoute = async ({ request }) => {
     logger.debug('Validating push token');
     const user = await pushService.validatePushToken(body.pushToken);
     if (!user) {
-      logger.error('Push API error: Invalid push token', { token: body.pushToken });
+      logger.error('Push API error: Invalid push token');
       return new Response(JSON.stringify({ error: 'Invalid push token' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -203,6 +203,7 @@ export const POST: APIRoute = async ({ request }) => {
       ...(body.icon_url && { icon_url: body.icon_url }),
       ...(body.type && { type: body.type }),
       ...(body.webhook_url && { webhook_url: body.webhook_url }),
+      ...(body.topic && { topic: body.topic }),
       ...(body.navigate_url && { navigate_url: body.navigate_url }),
       ...(body.extra && { extra: body.extra }),
     };
@@ -226,7 +227,7 @@ export const POST: APIRoute = async ({ request }) => {
       }
     }
 
-    let extraInfo: Record<string, any> | undefined;
+    let extraInfo: Record<string, unknown> | undefined;
     if (mergedParams.extra) {
       if (typeof mergedParams.extra !== 'object' || mergedParams.extra === null || Array.isArray(mergedParams.extra)) {
         logger.error('Push API error: Extra info must be a valid object', {
@@ -336,7 +337,7 @@ export const POST: APIRoute = async ({ request }) => {
         approvalId,
         tempAccessToken,
         approvalState: mergedParams.type === 'approval-process' ? 'pending' : undefined,
-        topic: mergedParams.category || 'Default',
+        topic: mergedParams.topic || notification.id,
       }
     );
 
@@ -366,7 +367,7 @@ export const POST: APIRoute = async ({ request }) => {
       return new Response(
         JSON.stringify(failedResponseData),
         {
-          status: 200,
+          status: body.test === true ? 200 : 502,
           headers: { 'Content-Type': 'application/json' },
         },
       );

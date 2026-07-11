@@ -1,7 +1,7 @@
 import { getDb } from '@/db';
 import { PushService } from '@/services/pushService';
 import { NotificationService } from '@/services/notificationService';
-import type { PushResult } from '@/services/pushService';
+import type { PushResult, PushServiceEnv } from '@/services/pushService';
 import { logger } from '@/utils/logger';
 
 export interface BarkParams {
@@ -24,7 +24,7 @@ export class BarkEndpointService {
   private pushService: PushService;
   private notificationService: NotificationService;
 
-  constructor(db: ReturnType<typeof getDb>, env: any) {
+  constructor(db: ReturnType<typeof getDb>, env: PushServiceEnv) {
     this.pushService = new PushService(db, env);
     this.notificationService = new NotificationService(db);
   }
@@ -33,7 +33,7 @@ export class BarkEndpointService {
    * Process a Bark push notification request
    */
   async processBarkPush(pushToken: string, params: BarkParams): Promise<PushResult> {
-    logger.debug(`Processing Bark push for token: ${pushToken}`, {
+    logger.debug('Processing Bark push', {
       hasTitle: !!params.title,
       hasSubtitle: !!params.subtitle,
       level: params.level
@@ -43,7 +43,7 @@ export class BarkEndpointService {
       // Validate push token
       const user = await this.pushService.validatePushToken(pushToken);
       if (!user) {
-        logger.error(`Invalid push token: ${pushToken}`);
+        logger.error('Invalid push token');
         return { success: false, error: 'Invalid push token' };
       }
 
@@ -105,7 +105,7 @@ export class BarkEndpointService {
           approvalId,
           tempAccessToken,
           approvalState: notificationData.type === 'approval-process' ? 'pending' : undefined,
-          topic: params.category || 'Default',
+          topic: undefined,
           urgency: params.level === 'critical' ? 'high' : 'normal',
         }
       );
@@ -119,7 +119,7 @@ export class BarkEndpointService {
    * Build extra info JSON from Bark parameters
    */
   private buildExtraInfo(params: BarkParams): string | null {
-    const extraInfo: Record<string, any> = {};
+    const extraInfo: Record<string, unknown> = {};
     let hasExtra = false;
 
     if (params.sound) {
