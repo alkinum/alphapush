@@ -12,7 +12,7 @@ test('Pages preparation packages the Worker and removes Astro deployment config 
   for (const directory of ['dist/client', 'dist/server/chunks', '.wrangler/deploy']) {
     mkdirSync(join(root, directory), { recursive: true });
   }
-  const pagesConfig = JSON.stringify({ name: 'alphapush', pages_build_output_dir: './dist/pages' });
+  const pagesConfig = JSON.stringify({ name: 'alphapush', pages_build_output_dir: './dist/pages', vars: { APP_URL: 'https://app.example' } });
   writeFileSync(join(root, 'wrangler.jsonc'), pagesConfig);
   writeFileSync(join(root, 'dist/client/sw.js'), 'self.addEventListener("push", () => {});');
   writeFileSync(join(root, 'dist/server/entry.mjs'), 'export { default } from "./chunks/app.mjs";');

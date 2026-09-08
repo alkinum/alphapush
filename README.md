@@ -97,6 +97,8 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 
    Pages uses the top-level bindings for production and `env.preview` for preview branches such as `dev`. Older configs must rename `env.dev` to `env.preview`, remove `account_id`, and set `pages_build_output_dir` to `./dist/pages`. Choose the account through Wrangler login or `CLOUDFLARE_ACCOUNT_ID`; Pages rejects `account_id` in its config. The `db:migrate:dev` script targets the preview database.
 
+   When deploying an existing project with Wrangler configuration, preserve its existing environment variables in the ignored local config: production values belong in `vars`, and preview values in `env.preview.vars`. Wrangler replaces ordinary dashboard variables with the values in this file. Keep secret values out of the tracked template and manage new secrets with `wrangler pages secret put <NAME> --project-name <PROJECT>`.
+
 7. Apply migrations to the local D1 database before starting the app:
 
    ```
