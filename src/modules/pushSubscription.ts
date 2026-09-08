@@ -14,9 +14,9 @@ const SUBSCRIPTION_EXPIRY_REFRESH_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 // State
 let vapidPublicKey: string | null = null;
-let deviceFingerprint: string | null = null;
 let droppedSubscriptionRepairPromise: Promise<boolean> | null = null;
 let serviceWorkerMessageListenerRegistered = false;
+let initializationPromise: Promise<boolean> | null = null;
 
 type AlphaPushWindow = Window & {
   __alphaPushModuleInitialized?: boolean;
@@ -68,7 +68,7 @@ function getStoredFingerprints(): UserFingerprints {
 /**
  * Get stored fingerprint for a specific user
  */
-function getUserFingerprint(userEmail: string): string | null {
+export function getUserFingerprint(userEmail: string): string | null {
   const fingerprints = getStoredFingerprints();
   return fingerprints[userEmail] || null;
 }
@@ -114,18 +114,6 @@ export async function getVapidKey(options: { silent?: boolean } = {}): Promise<s
       localStorage.setItem(VAPID_KEY_STORAGE_KEY, serverVapidKey);
       vapidPublicKey = serverVapidKey;
 
-      // Force resubscription if keys are different
-      if (storedVapidKey) {
-        // Unsubscribe from current subscription because key has changed
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-          const registration = await navigator.serviceWorker.ready;
-          const subscription = await registration.pushManager.getSubscription();
-          if (subscription) {
-            await subscription.unsubscribe();
-            console.debug('Unsubscribed from push due to VAPID key change');
-          }
-        }
-      }
     } else if (serverVapidKey) {
       vapidPublicKey = serverVapidKey;
       localStorage.setItem(VAPID_KEY_STORAGE_KEY, vapidPublicKey);
@@ -327,10 +315,8 @@ export async function unsubscribeWebPush(
  * Handle fingerprint changes and update subscription
  */
 async function handleFingerprintChange(userEmail: string, newFingerprint: string): Promise<boolean> {
-  const storedFingerprint = getUserFingerprint(userEmail);
-
   // If fingerprint hasn't changed, just return true
-  if (storedFingerprint === newFingerprint) {
+  if (getUserFingerprint(userEmail) === newFingerprint) {
     return true;
   }
 
@@ -353,15 +339,6 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
       return await initializeWebPush(true);
     }
 
-    // Unsubscribe old fingerprint if exists
-    if (storedFingerprint) {
-      await unsubscribeWebPush(storedFingerprint, userEmail);
-    }
-
-    // Update fingerprint in storage
-    deviceFingerprint = newFingerprint;
-    saveUserFingerprint(userEmail, deviceFingerprint);
-
     // Update subscription with new fingerprint using PUT method
     const response = await fetch('/api/subscription', {
       method: 'PUT',
@@ -370,7 +347,8 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
       },
       body: JSON.stringify({
         subscription,
-        deviceFingerprint,
+        deviceFingerprint: newFingerprint,
+        isSafari: supportsSafariDeclarativePush(),
       }),
     });
 
@@ -378,6 +356,7 @@ async function handleFingerprintChange(userEmail: string, newFingerprint: string
       throw new Error(`Failed to update subscription on server: ${response.status} ${response.statusText}`);
     }
 
+    saveUserFingerprint(userEmail, newFingerprint);
     console.debug('Subscription updated successfully with new fingerprint');
     return true;
   } catch (error) {
@@ -407,9 +386,8 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
 
     // Get and validate fingerprint
     const newFingerprint = await getCombinedFingerprint(userEmail);
-    const storedFingerprint = getUserFingerprint(userEmail);
-
     let subscription: PushSubscription | null = null;
+    let oldEndpoint: string | undefined;
 
     // Handle Safari declarative push (window.pushManager)
     if (supportsSafariDeclarativePush()) {
@@ -420,6 +398,7 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
       subscription = await safariPushManager.getSubscription();
 
       if (subscription) {
+        oldEndpoint = subscription.endpoint;
         const refreshReason = getSubscriptionRefreshReason(subscription, publicKey);
 
         if (refreshReason) {
@@ -427,12 +406,6 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
           await subscription.unsubscribe();
           subscription = null;
         }
-      }
-
-      // If fingerprint changed and we have an old one, unsubscribe it from server
-      if (storedFingerprint && storedFingerprint !== newFingerprint) {
-        console.debug('Fingerprint changed, unsubscribing old fingerprint');
-        await unsubscribeWebPush(storedFingerprint, userEmail, options);
       }
 
       // Subscribe only if there's no valid subscription
@@ -457,6 +430,7 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
       subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
+        oldEndpoint = subscription.endpoint;
         const refreshReason = getSubscriptionRefreshReason(subscription, publicKey);
 
         if (refreshReason) {
@@ -464,12 +438,6 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
           await subscription.unsubscribe();
           subscription = null;
         }
-      }
-
-      // If fingerprint changed and we have an old one, unsubscribe it from server
-      if (storedFingerprint && storedFingerprint !== newFingerprint) {
-        console.debug('Fingerprint changed, unsubscribing old fingerprint');
-        await unsubscribeWebPush(storedFingerprint, userEmail, options);
       }
 
       // Subscribe only if there's no valid subscription
@@ -486,10 +454,6 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
       throw new Error('Push notifications are not supported in this browser');
     }
 
-    // Update fingerprint in storage
-    deviceFingerprint = newFingerprint;
-    saveUserFingerprint(userEmail, deviceFingerprint);
-
     // Send subscription details to server using PUT method
     const response = await fetch('/api/subscription', {
       method: 'PUT',
@@ -499,6 +463,7 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
       body: JSON.stringify({
         subscription,
         deviceFingerprint: newFingerprint,
+        oldEndpoint,
         isSafari: supportsSafariDeclarativePush(),
       }),
     });
@@ -507,6 +472,7 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
       throw new Error(`Failed to register subscription on server: ${response.status} ${response.statusText}`);
     }
 
+    saveUserFingerprint(userEmail, newFingerprint);
     console.debug('Subscription registered successfully with server');
 
     // Dispatch subscription success event
@@ -514,27 +480,8 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
     return true;
   } catch (error) {
     console.error('Web Push subscription failed:', error);
-    // Cancel the subscription if it exists
-    try {
-      if (supportsSafariDeclarativePush()) {
-        const safariPushManager = (window as any).pushManager;
-        const subscription = await safariPushManager.getSubscription();
-        if (subscription) {
-          await subscription.unsubscribe();
-          console.debug('Cleaned up failed Safari subscription');
-        }
-      } else if ('serviceWorker' in navigator && 'PushManager' in window) {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
-        if (subscription) {
-          await subscription.unsubscribe();
-          console.debug('Cleaned up failed subscription');
-        }
-      }
-    } catch (cleanupError) {
-      console.error('Failed to clean up subscription after error:', cleanupError);
-    }
-
+    // Keep the browser subscription on temporary network or session failures.
+    // A later health check can register the same endpoint without losing delivery.
     if (!options.silent) {
       toast({
         title: 'Error',
@@ -551,7 +498,16 @@ export async function subscribeWebPush(publicKey: string, options: { silent?: bo
  * When forceRefresh is true, always fetches the latest VAPID key from server
  * Handles subscribing to push notifications with proper VAPID key verification
  */
-export async function initializeWebPush(
+export function initializeWebPush(forceRefresh = false, options: { silent?: boolean } = {}): Promise<boolean> {
+  if (!initializationPromise) {
+    initializationPromise = performWebPushInitialization(forceRefresh, options).finally(() => {
+      initializationPromise = null;
+    });
+  }
+  return initializationPromise;
+}
+
+async function performWebPushInitialization(
   forceRefresh = false,
   options: { silent?: boolean } = {}
 ): Promise<boolean> {
@@ -700,6 +656,16 @@ export function registerServiceWorker(): void {
     }
     appWindow.__alphaPushServiceWorkerRegistrationStarted = true;
 
+    const flushReceipts = () => {
+      void navigator.serviceWorker.ready.then((registration) => {
+        registration.active?.postMessage({ type: 'alphapush:flush-receipts' });
+      });
+    };
+    window.addEventListener('online', flushReceipts);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') flushReceipts();
+    });
+
     if (!serviceWorkerMessageListenerRegistered) {
       navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data?.type === 'alphapush:push-received' && event.data.notification) {
@@ -711,12 +677,14 @@ export function registerServiceWorker(): void {
       serviceWorkerMessageListenerRegistered = true;
     }
 
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('/sw.js').then(
+    const register = () => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(
         function (registration) {
           console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          flushReceipts();
         },
         function (err) {
+          appWindow.__alphaPushServiceWorkerRegistrationStarted = false;
           console.error('ServiceWorker registration failed: ', err);
           toast({
             title: 'Error',
@@ -725,7 +693,9 @@ export function registerServiceWorker(): void {
           });
         },
       );
-    });
+    };
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
   }
 }
 
@@ -753,7 +723,6 @@ export async function cleanupOnLogout(): Promise<void> {
   }
 
   // Reset state
-  deviceFingerprint = null;
 
   // Sign out
   signOut().then(() => {

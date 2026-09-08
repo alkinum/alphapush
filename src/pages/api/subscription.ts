@@ -95,7 +95,7 @@ const subscriptionEnv = env as SubscriptionEnv;
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 }
 
@@ -108,11 +108,18 @@ export const GET: APIRoute = async (context) => {
     }
 
     const userEmail = session.user.email;
+    const fingerprint = context.url.searchParams.get('fingerprint');
+    if (fingerprint && !isValidSHA256(fingerprint)) {
+      return jsonResponse({ error: 'Invalid device fingerprint' }, 400);
+    }
     const db = getDb(env.DB);
     const userSubscriptions = await db
       .select()
       .from(subscriptions)
-      .where(eq(subscriptions.userEmail, userEmail))
+      .where(and(
+        eq(subscriptions.userEmail, userEmail),
+        fingerprint ? eq(subscriptions.deviceFingerprint, fingerprint) : undefined
+      ))
       .all();
 
     const now = Date.now();
@@ -226,14 +233,14 @@ export const PUT: APIRoute = async (context) => {
       return userSubscriptionsCache;
     };
 
-    if (!deviceFingerprint && oldEndpoint) {
+    if (oldEndpoint) {
       const userSubscriptions = await getUserSubscriptions();
       existingSubscription = userSubscriptions.find((storedSubscription) => {
         return parseStoredSubscriptionEndpoint(storedSubscription.subscription) === oldEndpoint;
       });
 
       if (existingSubscription) {
-        deviceFingerprint = existingSubscription.deviceFingerprint;
+        deviceFingerprint ||= existingSubscription.deviceFingerprint;
       }
     }
 

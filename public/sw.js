@@ -5,6 +5,9 @@ const MASTER_KEY_STORAGE_KEY = 'masterKey';
 const DB_NAME = 'encryptionDB';
 const STORE_NAME = 'keyStore';
 const DB_VERSION = 1;
+const RECEIPT_CACHE = 'alphapush-delivery-receipts-v1';
+const RECEIPT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+let receiptFlushPromise = null;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -90,10 +93,6 @@ async function deriveKey(masterKey, salt) {
 }
 
 async function decryptMessage(encryptedContent, nonce) {
-  console.log('Starting decryption process');
-  console.log('Encrypted content:', encryptedContent);
-  console.log('Nonce:', nonce);
-
   const masterKey = await getMasterKey();
   if (!masterKey) {
     console.error('Master key not found');
@@ -197,6 +196,8 @@ async function handlePushEvent(event) {
   }
 
   let options = {
+    // Repeated transport attempts replace the same notification.
+    tag: data.id || undefined,
     body: data.body || data.content || 'Open AlphaPush to view this notification.',
     icon: data.iconUrl || '/icons/icon-192x192.png',
     vibrate: [100, 75, 240],
@@ -395,6 +396,7 @@ async function showNotificationWithReceipt(title, options) {
       options?.data?.attemptId,
       options?.data?.receiptToken,
     ),
+    flushDeliveryReceipts(),
     updateBadgeFromPayload(options?.data),
     notifyOpenClients(options?.data),
   ]);
@@ -431,30 +433,67 @@ async function openWindowWithReceipt(url, notificationData) {
   return openWindowPromise;
 }
 
-async function reportDeliveryEvent(notificationId, eventType, subscriptionId, attemptId, receiptToken) {
-  if (!notificationId) {
-    return;
-  }
-
-  try {
-    await fetch('/api/push-delivery', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        notificationId,
-        subscriptionId,
-        attemptId,
-        receiptToken,
-        event: eventType,
-      }),
-    });
-  } catch (error) {
-    console.debug('Failed to report notification delivery event:', error);
-  }
+async function sendReceipt(receipt) {
+  const response = await fetch('/api/push-delivery', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(5000),
+    body: JSON.stringify(receipt),
+  });
+  // Invalid/deleted messages are terminal. Session failures can recover later.
+  return response.ok || response.status === 400 || response.status === 404;
 }
+
+async function reportDeliveryEvent(notificationId, eventType, subscriptionId, attemptId, receiptToken) {
+  if (!notificationId) return;
+  const receipt = { notificationId, subscriptionId, attemptId, receiptToken, event: eventType };
+  let cache;
+  let key;
+  try {
+    cache = await caches.open(RECEIPT_CACHE);
+    key = new URL(`/__delivery-receipts/${encodeURIComponent(attemptId || notificationId)}/${eventType}`, self.location.origin).href;
+    // Persist before sending so termination or offline transitions do not lose the receipt.
+    await cache.put(key, new Response(JSON.stringify({ receipt, queuedAt: Date.now() })));
+  } catch (error) { console.debug('Unable to persist delivery receipt:', error); }
+  try {
+    if (await sendReceipt(receipt)) {
+      if (cache && key) await cache.delete(key);
+      return;
+    }
+  } catch (error) { console.debug('Delivery receipt queued for retry:', error); }
+  try { await self.registration.sync?.register('alphapush-delivery-receipts'); } catch { /* Retry on the next app or push event. */ }
+}
+
+function flushDeliveryReceipts() {
+  if (receiptFlushPromise) return receiptFlushPromise;
+  receiptFlushPromise = (async () => {
+    const cache = await caches.open(RECEIPT_CACHE);
+    const keys = await cache.keys();
+    const pending = [];
+    // Bound storage; receipts expire after seven days or the latest 100 entries.
+    for (const [index, key] of keys.entries()) {
+      const response = await cache.match(key);
+      const queued = response && await response.json();
+      if (!queued || index < keys.length - 100 || Date.now() - queued.queuedAt > RECEIPT_MAX_AGE_MS) {
+        await cache.delete(key); continue;
+      }
+      pending.push({ key, receipt: queued.receipt });
+    }
+    for (const { key, receipt } of pending) {
+      // Reject on transient failures so Background Sync can schedule another attempt.
+      if (!await sendReceipt(receipt)) throw new Error('Delivery receipt is still pending');
+      await cache.delete(key);
+    }
+  })().finally(() => { receiptFlushPromise = null; });
+  return receiptFlushPromise;
+}
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'alphapush-delivery-receipts') event.waitUntil(flushDeliveryReceipts());
+});
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'alphapush:flush-receipts') event.waitUntil(flushDeliveryReceipts());
+});
 
 async function notifyOpenClients(notification) {
   if (!notification?.id) {
@@ -585,5 +624,5 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(Promise.allSettled([self.clients.claim(), flushDeliveryReceipts()]));
 });

@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { pushDeliveryAttempts, pushNotifications, subscriptions } from '@/schema';
 import { BarkFallbackService } from '@/services/barkFallbackService';
@@ -78,15 +78,15 @@ export class DeliveryRetryService {
     const updateData =
       event === 'opened'
         ? {
-          displayedAt: now,
+          displayedAt: sql`coalesce(${pushDeliveryAttempts.displayedAt}, ${Math.floor(now.getTime() / 1000)})`,
           openedAt: now,
-          ackedAt: now,
+          ackedAt: sql`coalesce(${pushDeliveryAttempts.ackedAt}, ${Math.floor(now.getTime() / 1000)})`,
           status: 'acked',
           updatedAt: now,
         }
         : {
-          displayedAt: now,
-          ackedAt: now,
+          displayedAt: sql`coalesce(${pushDeliveryAttempts.displayedAt}, ${Math.floor(now.getTime() / 1000)})`,
+          ackedAt: sql`coalesce(${pushDeliveryAttempts.ackedAt}, ${Math.floor(now.getTime() / 1000)})`,
           status: 'acked',
           updatedAt: now,
         };
@@ -95,7 +95,7 @@ export class DeliveryRetryService {
       eq(pushDeliveryAttempts.notificationId, notificationId),
       eq(pushDeliveryAttempts.subscriptionId, subscriptionId),
       eq(pushDeliveryAttempts.userEmail, userEmail),
-      isNull(pushDeliveryAttempts.ackedAt),
+      event === 'opened' ? isNull(pushDeliveryAttempts.openedAt) : isNull(pushDeliveryAttempts.ackedAt),
     ];
 
     if (attemptId) {
@@ -343,7 +343,7 @@ export class DeliveryRetryService {
     await this.db
       .update(subscriptions)
       .set({
-        noAckCount: (subscription.noAckCount || 0) + 1,
+        noAckCount: sql`coalesce(${subscriptions.noAckCount}, 0) + 1`,
         lastNoAckAt: now,
         updatedAt: now,
       })
@@ -363,7 +363,7 @@ export class DeliveryRetryService {
         fallbackSentAt: sent ? now : null,
         fallbackReason: reason,
         fallbackError: sent ? null : error || 'Bark fallback failed',
-        status: sent ? 'fallback_sent' : 'fallback_failed',
+        status: sql`case when ${pushDeliveryAttempts.ackedAt} is not null then 'acked' else ${sent ? 'fallback_sent' : 'fallback_failed'} end`,
         updatedAt: now,
       })
       .where(eq(pushDeliveryAttempts.id, attemptId));

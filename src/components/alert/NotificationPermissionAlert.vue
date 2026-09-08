@@ -4,7 +4,7 @@ import { Icon } from '@iconify/vue';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/sonner/use-toast';
-import { hasActiveWebPushSubscription, repairPushSubscription } from '@/modules/pushSubscription';
+import { getUserFingerprint, hasActiveWebPushSubscription, repairPushSubscription } from '@/modules/pushSubscription';
 
 type AlertMode = 'permission' | 'repair' | null;
 
@@ -139,7 +139,9 @@ async function evaluateNotificationState() {
 }
 
 async function getSubscriptionHealth(): Promise<SubscriptionHealthResponse | null> {
-  const response = await fetch('/api/subscription', {
+  const fingerprint = getUserFingerprint(document.body.dataset.userEmail || '');
+  if (!fingerprint) return { total: 0, needsRepair: true, failingCount: 0, staleCount: 0 };
+  const response = await fetch(`/api/subscription?fingerprint=${encodeURIComponent(fingerprint)}`, {
     method: 'GET',
     credentials: 'include',
   });
