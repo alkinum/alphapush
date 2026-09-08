@@ -1,8 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "your-alphapush-pages-project",
-  "account_id": "your_account_id",
-  "pages_build_output_dir": "./dist",
+  "pages_build_output_dir": "./dist/pages",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
@@ -23,7 +22,7 @@
     }
   ],
   "env": {
-    "dev": {
+    "preview": {
       "d1_databases": [
         {
           "binding": "DB",

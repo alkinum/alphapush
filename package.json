@@ -12,7 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:prod": "wrangler d1 migrations apply DB --remote",
-    "db:migrate:dev": "wrangler d1 migrations apply DB --env dev --remote",
+    "db:migrate:dev": "wrangler d1 migrations apply DB --env preview --remote",
     "prepare:pages": "node scripts/prepare-pages-deploy.mjs",
     "deploy:dev": "pnpm run build && pnpm run prepare:pages && wrangler pages deploy dist/pages --project-name alphapush --branch dev",
     "deploy:prod": "pnpm run build && pnpm run prepare:pages && wrangler pages deploy dist/pages --project-name alphapush --branch main",

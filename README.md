@@ -95,6 +95,8 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 
    Edit `wrangler.jsonc` for your own Cloudflare Pages project. The tracked template declares the required `DB`, `KV`, and `SESSION` bindings; keep those binding names intact. The real `wrangler.jsonc` is ignored by git; only `wrangler.template.jsonc` should be committed.
 
+   Pages uses the top-level bindings for production and `env.preview` for preview branches such as `dev`. Older configs must rename `env.dev` to `env.preview`, remove `account_id`, and set `pages_build_output_dir` to `./dist/pages`. Choose the account through Wrangler login or `CLOUDFLARE_ACCOUNT_ID`; Pages rejects `account_id` in its config. The `db:migrate:dev` script targets the preview database.
+
 7. Apply migrations to the local D1 database before starting the app:
 
    ```
