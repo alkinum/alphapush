@@ -24,6 +24,7 @@ export interface SSEHandlers {
   onNewNotification?: (notification: Notification) => void;
   onUpdateNotification?: (notification: Notification) => void;
   onDeleteNotification?: (id: string) => void;
+  onApprovalStateChanged?: (change: { notificationId: string; approvalId: string; state: string }) => void;
 }
 
 /**
@@ -130,6 +131,18 @@ export function useSSEConnection(userEmail: Ref<string | null | undefined>, hand
           }
         } catch (error) {
           console.error('Error handling update notification event:', error);
+        }
+      });
+
+      eventSource.value.addEventListener('approvalStateChanged', (event) => {
+        try {
+          const change = JSON.parse((event as unknown as MessageEvent).data);
+          if (typeof change.notificationId === 'string' && typeof change.approvalId === 'string' &&
+            (change.state === 'approved' || change.state === 'rejected')) {
+            handlers.onApprovalStateChanged?.(change);
+          }
+        } catch (error) {
+          console.error('Error handling approval state event:', error);
         }
       });
 

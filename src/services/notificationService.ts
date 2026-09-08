@@ -1,7 +1,7 @@
 import { eq, and, desc, sql, isNull, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { getDb } from '@/db';
-import { pushNotifications, categories, groups } from '@/schema';
+import { pushNotifications, categories, groups, approvalProcesses } from '@/schema';
 import type { Notification } from '@/types/notification';
 import { logger } from '@/utils/logger';
 
@@ -173,6 +173,7 @@ export class NotificationService {
 
           return {
             ...notification,
+            ...await this.getApprovalDetails(notification),
             category: categoryName,
             group: groupName,
           } as Notification;
@@ -247,6 +248,7 @@ export class NotificationService {
 
       return {
         ...notification,
+        ...await this.getApprovalDetails(notification),
         category: categoryName,
         group: groupName,
       } as Notification;
@@ -254,6 +256,21 @@ export class NotificationService {
       logger.error(`Error getting notification ${notificationId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  private async getApprovalDetails(notification: typeof pushNotifications.$inferSelect) {
+    if (notification.type !== 'approval-process') return {};
+    return await this.db
+      .select({
+        approvalId: approvalProcesses.id,
+        approvalState: sql<string>`case when ${approvalProcesses.state} = 'processing' then 'pending' else ${approvalProcesses.state} end`,
+      })
+      .from(approvalProcesses)
+      .where(and(
+        eq(approvalProcesses.notificationId, notification.id),
+        eq(approvalProcesses.userEmail, notification.userEmail)
+      ))
+      .get() || {};
   }
 
   /**

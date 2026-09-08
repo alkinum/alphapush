@@ -235,6 +235,11 @@ const { connect, disconnect } = useSSEConnection(userEmail, {
   },
   onUpdateNotification: handleNotificationUpdateFromSSE,
   onDeleteNotification: handleNotificationDeleted,
+  onApprovalStateChanged: ({ notificationId, approvalId, state }) => {
+    notifications.value = notifications.value.map(notification => notification.id === notificationId
+      ? { ...notification, approvalId, approvalState: state }
+      : notification);
+  },
 });
 
 // Handle reconnectSSE event

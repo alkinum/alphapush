@@ -2,150 +2,91 @@ import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { getSessionFromContext } from '@/lib/auth';
 import { ApprovalProcessService } from '@/services/approvalProcessService';
-import type { ApprovalState } from '@/types/approval';
 import { getDb } from '@/db';
 import { StreamService } from '@/services/streamService';
+import { logger } from '@/utils/logger';
+
+function jsonResponse(data: unknown, status: number): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 export const POST: APIRoute = async (context) => {
   try {
-    const db = getDb(env.DB);
-    const approvalProcessService = new ApprovalProcessService(db);
-    const streamService = new StreamService();
-    const body = (await context.request.json()) as { approvalId: string; state: ApprovalState };
-    const { approvalId, state } = body;
-
-    if (!approvalId || !state || (state !== 'approved' && state !== 'rejected')) {
-      return new Response(JSON.stringify({ error: 'Missing required parameters or invalid state' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    const body = await context.request.json().catch(() => null) as { approvalId?: unknown; state?: unknown } | null;
+    const approvalId = typeof body?.approvalId === 'string' ? body.approvalId.trim() : '';
+    const state = body?.state;
+    if (!approvalId || (state !== 'approved' && state !== 'rejected')) {
+      return jsonResponse({ error: 'Missing required parameters or invalid state' }, 400);
     }
 
-    let isAuthorized = false;
-    let userEmail: string | undefined;
-    let usedAccessToken: string | undefined;
-    let approvalProcess;
-
-    // Check for access_token in the header
-    const accessToken = context.request.headers.get('Authorization')?.replace('Bearer ', '');
-    if (accessToken) {
-      // Get the stored token from Cloudflare KV
-      const storedToken = await env.KV.get(`approval_token:${approvalId}`);
-      if (storedToken && storedToken === accessToken) {
-        isAuthorized = true;
-        usedAccessToken = accessToken;
-        approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
-      }
+    const approvalProcessService = new ApprovalProcessService(getDb(env.DB));
+    const accessToken = context.request.headers.get('Authorization')?.match(/^Bearer (.+)$/i)?.[1];
+    const storedToken = accessToken ? await env.KV.get(`approval_token:${approvalId}`) : null;
+    const tokenAuthorized = !!accessToken && !!storedToken && storedToken === accessToken;
+    const session = tokenAuthorized ? null : await getSessionFromContext(context);
+    if (!tokenAuthorized && !session?.user?.email) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
-    // If not authorized by access_token, check user session
-    if (!isAuthorized) {
-      const session = await getSessionFromContext(context);
-      userEmail = session?.user?.email ?? undefined;
-      if (!userEmail) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // Fetch the approval process and check if it belongs to the user
-      approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
-      if (!approvalProcess || approvalProcess.userEmail !== userEmail) {
-        return new Response(JSON.stringify({ error: 'Approval process not found or not authorized' }), {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      isAuthorized = true;
+    const approvalProcess = await approvalProcessService.getApprovalProcessById(approvalId);
+    if (!approvalProcess || (!tokenAuthorized && approvalProcess.userEmail !== session?.user?.email)) {
+      return jsonResponse({ error: 'Approval process not found or not authorized' }, 404);
     }
 
-    // Validate if approvalProcess is still undefined
-    if (!approvalProcess) {
-      return new Response(JSON.stringify({ error: 'Approval process not found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    // Claim before making an external call so repeated clicks cannot send another webhook.
+    const claimed = await approvalProcessService.claimApprovalProcess(approvalId);
+    if (!claimed?.updatedAt) {
+      return jsonResponse({ error: 'Approval is already processed or being processed' }, 409);
     }
 
-    // Call the webhook
-    const webhookPayload = {
-      notificationId: approvalId,
-      approvalId,
-      state,
-    };
-
-    let webhookResponse;
     try {
-      webhookResponse = await fetch(approvalProcess.webhookUrl, {
+      const response = await fetch(claimed.webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': claimed.id,
         },
-        body: JSON.stringify(webhookPayload),
+        body: JSON.stringify({ notificationId: claimed.notificationId, approvalId, state }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(10_000),
       });
-
-      if (!webhookResponse.ok) {
-        console.error('Webhook call failed:', await webhookResponse.text());
-        return new Response(JSON.stringify({ error: 'Webhook call failed' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    } catch (fetchError) {
-      console.error('Error calling webhook:', fetchError);
-      return new Response(JSON.stringify({ error: 'Error calling webhook' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    let updatedApproval;
-    try {
-      updatedApproval = await approvalProcessService.updateApprovalProcessState(approvalId, state);
+      // Release the response stream; only the status is needed.
+      await response.body?.cancel();
+      if (!response.ok) throw new Error(`Webhook returned ${response.status}`);
     } catch (error) {
-      if (error instanceof Error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      throw error;
+      logger.error('Approval webhook failed:', error);
+      await approvalProcessService.finishApprovalProcess(approvalId, claimed.updatedAt, 'pending');
+      return jsonResponse({ error: 'Webhook call failed' }, 502);
     }
 
-    // Send SSE event
-    if (userEmail) {
-      await streamService.sendApprovalStateChangedEvent(
-        userEmail,
+    const updatedApproval = await approvalProcessService.finishApprovalProcess(approvalId, claimed.updatedAt, state);
+    if (!updatedApproval) {
+      return jsonResponse({ error: 'Approval claim expired; refresh its state before retrying' }, 409);
+    }
+
+    try {
+      await new StreamService().sendApprovalStateChangedEvent(
+        updatedApproval.userEmail,
         updatedApproval.notificationId,
         updatedApproval.id,
         updatedApproval.state
       );
+    } catch (error) {
+      logger.error('Failed to publish approval state:', error);
     }
 
-    // Revoke the access token if it was used
-    if (usedAccessToken) {
-      try {
-        await env.KV.delete(`approval_token:${approvalId}`);
-      } catch (deleteError) {
-        // Log the error but continue execution
-        console.warn('Failed to delete access token, it will expire naturally:', deleteError);
-      }
+    try {
+      await env.KV.delete(`approval_token:${approvalId}`);
+    } catch (error) {
+      logger.warn('Failed to delete approval access token; it will expire naturally:', error);
     }
 
-    return new Response(
-      JSON.stringify({ message: 'Approval state updated and webhook called successfully', updatedApproval }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
+    return jsonResponse({ message: 'Approval state updated and webhook called successfully', updatedApproval }, 200);
   } catch (error) {
-    console.error('Error updating approval state:', error);
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    logger.error('Error updating approval process:', error);
+    return jsonResponse({ error: 'Internal Server Error' }, 500);
   }
 };

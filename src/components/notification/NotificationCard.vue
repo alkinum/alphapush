@@ -303,6 +303,8 @@ const handleSelectFromContextMenu = () => {
 
 const isApprovalProcess = computed(() => props.notification.type === 'approval-process');
 const approvalState = ref(props.notification.approvalState);
+const isSubmittingApproval = ref(false);
+watch(() => props.notification.approvalState, state => { approvalState.value = state; });
 
 const showApprovalButtons = computed(() => isApprovalProcess.value && approvalState.value === 'pending');
 const isUnread = computed(() => !props.notification.readAt);
@@ -324,6 +326,8 @@ const handleReject = async () => {
 };
 
 const updateApprovalState = async (state: 'approved' | 'rejected') => {
+  if (isSubmittingApproval.value || approvalState.value !== 'pending') return;
+  isSubmittingApproval.value = true;
   try {
     const response = await fetch('/api/approval', {
       method: 'POST',
@@ -349,6 +353,8 @@ const updateApprovalState = async (state: 'approved' | 'rejected') => {
       description: `Failed to update approval state: ${error instanceof Error ? error.message : 'Unknown error'}`,
       variant: 'destructive',
     });
+  } finally {
+    isSubmittingApproval.value = false;
   }
 };
 
@@ -571,8 +577,8 @@ const handleCancelDelete = () => {
         </CardContent>
         <CardFooter v-if="isApprovalProcess" class="border-t px-5 py-4">
           <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
-            <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
-            <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
+            <Button @click="handleReject" :disabled="isSubmittingApproval" variant="destructive" class="flex-1">Reject</Button>
+            <Button @click="handleApprove" :disabled="isSubmittingApproval" variant="secondary" class="flex-1">Approve</Button>
           </div>
           <div v-else class="flex justify-end items-center w-full">
             <Button size="sm" disabled class="w-full">

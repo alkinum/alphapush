@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, lte, or } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 
 import { approvalProcesses } from '@/schema';
@@ -10,21 +10,29 @@ export class ApprovalProcessService {
     return await this.db.insert(approvalProcesses).values(data).returning().get();
   }
 
-  async updateApprovalProcessState(id: string, state: 'approved' | 'rejected') {
-    const currentProcess = await this.getApprovalProcessById(id);
+  async claimApprovalProcess(id: string) {
+    const now = new Date();
+    // The lease outlasts the webhook timeout and recovers interrupted requests.
+    return await this.db
+      .update(approvalProcesses)
+      .set({ state: 'processing', updatedAt: now })
+      .where(and(eq(approvalProcesses.id, id), or(
+        eq(approvalProcesses.state, 'pending'),
+        and(eq(approvalProcesses.state, 'processing'), lte(approvalProcesses.updatedAt, new Date(now.getTime() - 60_000)))
+      )))
+      .returning()
+      .get();
+  }
 
-    if (!currentProcess) {
-      throw new Error('Approval process not found');
-    }
-
-    if (currentProcess.state !== 'pending') {
-      throw new Error('Cannot update a non-pending approval process');
-    }
-
+  async finishApprovalProcess(id: string, claimedAt: Date, state: 'pending' | 'approved' | 'rejected') {
     return await this.db
       .update(approvalProcesses)
       .set({ state, updatedAt: new Date() })
-      .where(eq(approvalProcesses.id, id))
+      .where(and(
+        eq(approvalProcesses.id, id),
+        eq(approvalProcesses.state, 'processing'),
+        eq(approvalProcesses.updatedAt, claimedAt)
+      ))
       .returning()
       .get();
   }
