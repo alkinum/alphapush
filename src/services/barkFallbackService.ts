@@ -78,6 +78,8 @@ export class BarkFallbackService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
+        signal: AbortSignal.timeout(10_000),
       });
 
       const responseData = await parseBarkResponse(response);
