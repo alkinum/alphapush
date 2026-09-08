@@ -176,3 +176,44 @@ For more detailed information about our development plans and progress, please c
 ## License
 
 AlphaPush is open-sourced under the MIT license. See the LICENSE file for more information.
+
+### Session persistence and delivery verification
+
+GitHub authenticates the user at sign-in; the AlphaPush session is independent of the
+GitHub access token. Sessions last 180 days and renew after six hours of activity.
+SSR reads defer renewal. The same-origin `POST /api/session/keepalive` refreshes D1
+and forwards all Better Auth cookies to the browser. Keep `BETTER_AUTH_SECRET`
+(or Better Auth's `AUTH_SECRET` fallback) stable across deployments and instances;
+changing it invalidates signed cookies. Browser and installed PWA cookie stores may
+be separate, and clearing site data still requires a new sign-in.
+
+The subscription repair alert checks only the current device. Registration and
+push-service acceptance do not prove display; delivery receipts are recorded separately.
+Transient network failures, HTTP 429, and HTTP 5xx get up to three transport attempts
+with an eight-second timeout per request. Long `Retry-After` values stop inline retries
+so the existing fallback path can take over; 404/410 remain terminal subscriptions.
+Transport timeouts can be ambiguous: notification tags reduce duplicate display on
+standard Web Push, but exactly-once delivery is not guaranteed.
+
+The service worker persists failed delivery receipts for up to seven days (latest
+100 entries), then retries on activation, new pushes, foreground/online events, and
+Background Sync where available. Safari declarative push continues to use its
+navigation receipt URL when the service worker does not run. Configure device-scoped
+Bark fallback and the delivery retry cron Worker for critical notifications. OS Focus,
+notification permissions, offline devices, and platform policies still affect delivery.
+
+Run targeted regression checks with `node --test test/reliability.test.mjs`.
+These cover session cookie renewal, transport retries, subscription preservation,
+receipt replay, acknowledgement ordering, pagination races, and message HTML filtering.
+Notification Markdown is sanitized before rendering; long content expands without an
+overlay and the inbox retains loaded pages during background refresh.
+Before release, manually verify on a signed-in desktop and installed iOS PWA:
+
+- After a session becomes renewal-eligible, foreground the app and confirm keepalive
+  returns session `Set-Cookie` headers; reload and confirm the account stays signed in.
+- Send a test notification to each platform, verify display/open receipts and badge
+  updates, then temporarily interrupt receipt requests and verify later replay.
+- Change a device fingerprint or renew its endpoint and confirm the subscription ID
+  and Bark settings remain intact. A failed registration request must retain local push.
+- At mobile and desktop widths, verify inbox filtering, selection, account settings,
+  and sender validation. Sender submission must generate only one push request.
