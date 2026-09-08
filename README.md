@@ -136,6 +136,8 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 
    These commands build the Astro Workers output and repackage it into the `_worker.js` directory format required by Cloudflare Pages Advanced Mode.
 
+   The preparation step also removes Astro's generated `.wrangler/deploy/config.json` redirect so Pages uses the project's `wrangler.jsonc`. The generated Workers config declares an `ASSETS` binding, which is reserved by Pages and prevents deployment. Run `pnpm run prepare:pages` after each build when deploying manually.
+
 3. Configure the delivery retry shared secret for both the Pages app and the cron Worker:
 
    ```
