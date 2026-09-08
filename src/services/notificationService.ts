@@ -95,6 +95,7 @@ export class NotificationService {
         logger.debug(`Group found with ID: ${groupById.id}`);
       } else {
         logger.warn(`Group not found with ID: ${options.group}`);
+        return { notifications: [], totalCount: 0, totalPages: 0 };
       }
     }
 
@@ -118,6 +119,7 @@ export class NotificationService {
         logger.debug(`Category found with ID: ${categoryById.id}`);
       } else {
         logger.warn(`Category not found with ID: ${options.category}`);
+        return { notifications: [], totalCount: 0, totalPages: 0 };
       }
     }
 
@@ -128,7 +130,7 @@ export class NotificationService {
           .select()
           .from(pushNotifications)
           .where(whereClause)
-          .orderBy(desc(pushNotifications.createdAt))
+          .orderBy(desc(pushNotifications.createdAt), desc(pushNotifications.id))
           .limit(pageSize)
           .offset(offset)
           .all(),
@@ -353,13 +355,13 @@ export class NotificationService {
     const updateData =
       event === 'opened'
         ? {
-          webPushDisplayedAt: now,
-          webPushOpenedAt: now,
-          readAt: now,
+          webPushDisplayedAt: sql`coalesce(${pushNotifications.webPushDisplayedAt}, ${Math.floor(now.getTime() / 1000)})`,
+          webPushOpenedAt: sql`coalesce(${pushNotifications.webPushOpenedAt}, ${Math.floor(now.getTime() / 1000)})`,
+          readAt: sql`coalesce(${pushNotifications.readAt}, ${Math.floor(now.getTime() / 1000)})`,
           updatedAt: now,
         }
         : {
-          webPushDisplayedAt: now,
+          webPushDisplayedAt: sql`coalesce(${pushNotifications.webPushDisplayedAt}, ${Math.floor(now.getTime() / 1000)})`,
           updatedAt: now,
         };
 

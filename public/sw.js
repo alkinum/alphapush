@@ -206,8 +206,8 @@ async function handlePushEvent(event) {
       subscriptionId: data.subscriptionId,
       attemptId: data.attemptId,
       receiptToken: data.receiptToken,
-      category: data.category,
-      notification_group: data.notification_group,
+      category: data.categoryId || data.category,
+      notification_group: data.groupId || data.notification_group,
       type: data.type,
       approvalId: data.approvalId,
       createdAt: data.createdAt || Date.now(),
@@ -303,8 +303,13 @@ self.addEventListener('notificationclick', function (event) {
   const notificationData = event.notification.data || {};
 
   const url = new URL('/', self.location.origin);
+  setSearchParamIfPresent(url, 'notificationId', notificationData.id);
+  setSearchParamIfPresent(url, 'subscriptionId', notificationData.subscriptionId);
+  setSearchParamIfPresent(url, 'attemptId', notificationData.attemptId);
+  setSearchParamIfPresent(url, 'receiptToken', notificationData.receiptToken);
   const currentTime = Date.now();
-  const createdAt = Number(notificationData.createdAt || 0);
+  const numericCreatedAt = Number(notificationData.createdAt || 0);
+  const createdAt = Number.isFinite(numericCreatedAt) ? numericCreatedAt : Date.parse(notificationData.createdAt);
   const timeSinceCreation = createdAt ? currentTime - createdAt : Number.POSITIVE_INFINITY;
 
   if (notificationData.type === 'approval-process') {
@@ -351,7 +356,7 @@ self.addEventListener('notificationclick', function (event) {
   if (notificationData.navigateUrl) {
     try {
       // Validate if the URL is valid
-      const navigateUrl = new URL(notificationData.navigateUrl);
+      const navigateUrl = new URL(notificationData.navigateUrl, self.location.origin);
 
       // Check if the URL has a valid protocol (http or https)
       if (navigateUrl.protocol === 'http:' || navigateUrl.protocol === 'https:') {

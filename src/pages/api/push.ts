@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { parse as parseYaml } from 'yaml';
 import { getDb } from '@/db';
-import { PushService } from '@/services/pushService';
+import { PushService, validateWebhookUrl } from '@/services/pushService';
 import { NotificationService } from '@/services/notificationService';
 import type { Notification } from '@/types/notification';
 import { logger } from '@/utils/logger';
@@ -147,11 +147,19 @@ function isBarkFormat(body: unknown): body is BarkPushBody {
     typeof body.body === 'string';
 }
 
+function hasValidOptionalParameters(params: FrontmatterParams): boolean {
+  return ['title', 'subtitle', 'category', 'group', 'icon_url', 'type', 'webhook_url', 'topic', 'navigate_url']
+    .every(key => {
+      const value = params[key as keyof FrontmatterParams];
+      return value === undefined || value === null || typeof value === 'string';
+    });
+}
+
 export const POST: APIRoute = async ({ request }) => {
   logger.debug('Push API request received');
 
   try {
-    const requestBody: unknown = await request.json();
+    const requestBody: unknown = await request.json().catch(() => null);
 
     // Detect if the request is in Bark API V2 format and convert if needed
     let body: PushBody;
@@ -162,10 +170,11 @@ export const POST: APIRoute = async ({ request }) => {
       body = requestBody as PushBody;
     }
 
-    if (!body.pushToken || !body.content) {
+    if (!body || typeof body.pushToken !== 'string' || !body.pushToken.trim() ||
+      typeof body.content !== 'string' || !body.content.trim() || !hasValidOptionalParameters(body)) {
       logger.error('Push API error: Missing required parameters', {
-        hasToken: !!body.pushToken,
-        hasContent: !!body.content
+        hasToken: !!body?.pushToken,
+        hasContent: !!body?.content
       });
       return new Response(JSON.stringify({ error: 'Invalid input parameters' }), {
         status: 400,
@@ -208,6 +217,13 @@ export const POST: APIRoute = async ({ request }) => {
       ...(body.extra && { extra: body.extra }),
     };
 
+    if (!hasValidOptionalParameters(mergedParams)) {
+      return new Response(JSON.stringify({ error: 'Notification parameters must be strings' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     if (mergedParams.icon_url) {
       try {
         const url = new URL(mergedParams.icon_url);
@@ -243,12 +259,22 @@ export const POST: APIRoute = async ({ request }) => {
       extraInfo = mergedParams.extra;
     }
 
+    if (mergedParams.type === 'approval-process') {
+      const validation = validateWebhookUrl(mergedParams.webhook_url || '');
+      if (!mergedParams.webhook_url || (!validation.isValid && import.meta.env.DISABLE_SSRF_PROTECTION !== 'true')) {
+        return new Response(JSON.stringify({ error: validation.error }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     const notificationData = {
       content,
       title: mergedParams.title,
       subtitle: mergedParams.subtitle,
       category: mergedParams.category,
-      notification_group: mergedParams.group,
+      group: mergedParams.group,
       userEmail: user.email,
       iconUrl: mergedParams.icon_url,
       navigate_url: mergedParams.navigate_url,

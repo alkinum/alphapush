@@ -50,7 +50,10 @@ export function validateWebhookUrl(url: string): { isValid: boolean; error?: str
   }
 
   try {
-    new URL(url);
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      return { isValid: false, error: 'Webhook URL must use http or https' };
+    }
   } catch (error) {
     return { isValid: false, error: 'Invalid URL format' };
   }
@@ -157,7 +160,7 @@ export class PushService {
     const baseUrl = notification.navigate_url || '/';
 
     // Use appUrl as base for relative URLs
-    const fullBaseUrl = baseUrl.startsWith('http') ? baseUrl : `${appUrl}${baseUrl}`;
+    const fullBaseUrl = new URL(baseUrl, appUrl).toString();
     const url = new URL(fullBaseUrl);
 
     // Add all notification data as query parameters (matching sw.js data fields)
