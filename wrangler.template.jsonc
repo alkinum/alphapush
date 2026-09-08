@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "your-alphapush-pages-project",
+  "account_id": "your_account_id",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-04-15",
   "compatibility_flags": ["nodejs_compat"],
@@ -20,5 +21,26 @@
       "binding": "SESSION",
       "id": "your_session_kv_namespace_id"
     }
-  ]
+  ],
+  "env": {
+    "dev": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "alphapush-dev",
+          "database_id": "your_dev_database_id"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV",
+          "id": "your_dev_kv_namespace_id"
+        },
+        {
+          "binding": "SESSION",
+          "id": "your_dev_session_kv_namespace_id"
+        }
+      ]
+    }
+  }
 }

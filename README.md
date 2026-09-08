@@ -119,17 +119,22 @@ AlphaPush uses Cloudflare D1 for its database. Follow these steps to set it up:
 
 ### Deployment
 
-1. Build the project:
+1. Apply the D1 migrations for the environment being deployed:
 
    ```
-   pnpm run build
+   pnpm run db:migrate:dev
+   pnpm run db:migrate:prod
    ```
 
-2. Deploy to Cloudflare Pages:
+2. Deploy one or both Cloudflare Pages environments:
 
    ```
+   pnpm run deploy:dev
    pnpm run deploy:prod
+   pnpm run deploy:all
    ```
+
+   These commands build the Astro Workers output and repackage it into the `_worker.js` directory format required by Cloudflare Pages Advanced Mode.
 
 3. Configure the delivery retry shared secret for both the Pages app and the cron Worker:
 
