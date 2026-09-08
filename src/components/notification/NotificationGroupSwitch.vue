@@ -5,7 +5,7 @@ import DropdownMenuTrigger from '@/components/ui/dropdown-menu/DropdownMenuTrigg
 import DropdownMenuContent from '@/components/ui/dropdown-menu/DropdownMenuContent.vue';
 import DropdownMenuItem from '@/components/ui/dropdown-menu/DropdownMenuItem.vue';
 import { Button } from '@/components/ui/button';
-import { ChevronDown } from '@lucide/vue';
+import { Check, ChevronDown, Layers3 } from '@lucide/vue';
 import NotificationCategorySwitch from './NotificationCategorySwitch.vue';
 
 interface Category {
@@ -47,6 +47,7 @@ interface Props {
   initialGroups?: Group[];
   initialCategories?: Category[];
   categoriesByGroup?: Record<string, Category[]>;
+  loading?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -55,6 +56,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialGroups: () => [],
   initialCategories: () => [],
   categoriesByGroup: () => ({ all: [] }),
+  loading: false,
 });
 
 const emit = defineEmits<{
@@ -63,6 +65,7 @@ const emit = defineEmits<{
 
 const currentGroup = ref(props.initialGroup);
 const currentCategory = ref(props.initialCategory);
+const groupMenuOpen = ref(false);
 
 // Use initial data or default values
 const groups = ref<Group[]>(props.initialGroups.length > 0 ? props.initialGroups : [{ id: 'all', name: 'All Groups' }]);
@@ -78,8 +81,7 @@ const currentGroupName = ref(groups.value.find((g) => g.id === currentGroup.valu
 // Store categories by group
 const categoriesByGroup = ref<Record<string, Category[]>>(props.categoriesByGroup);
 
-// Flag to track if data has been fetched
-const dataFetched = ref(false);
+let categoryRequestSequence = 0;
 
 // Fetch groups from API
 const fetchGroups = async () => {
@@ -116,8 +118,7 @@ const fetchGroups = async () => {
 // Fetch categories by group from API
 const fetchCategoriesByGroup = async (groupId: string) => {
   try {
-    // Set flag to indicate data is being fetched
-    dataFetched.value = true;
+    const requestId = ++categoryRequestSequence;
 
     // Build the API URL with the group parameter
     const url = `/api/notification-categories${groupId !== 'all' ? `?group=${encodeURIComponent(groupId)}` : ''}`;
@@ -130,6 +131,7 @@ const fetchCategoriesByGroup = async (groupId: string) => {
 
     const data = (await response.json()) as CategoriesResponse;
 
+    if (requestId !== categoryRequestSequence || currentGroup.value !== groupId) return;
     if (data.categoriesByGroup) {
       // Update our local categoriesByGroup ref
       if (groupId === 'all') {
@@ -202,6 +204,7 @@ const filterCategoriesByGroup = (groupId: string) => {
 const handleGroupChange = (value: string) => {
   if (currentGroup.value === value) return; // Avoid unnecessary re-renders
 
+  categoryRequestSequence += 1;
   currentGroup.value = value;
   // Update current group name
   currentGroupName.value = groups.value.find((g) => g.id === value)?.name || 'All Groups';
@@ -283,15 +286,13 @@ const handleNewGroup = (event: CustomEvent) => {
   // fetchGroups();
 };
 
-// Watch for changes in the current group and update categories accordingly
-watch(
-  () => currentGroup.value,
-  (newGroup) => {
-    if (newGroup && !dataFetched.value) {
-      filterCategoriesByGroup(newGroup);
-    }
-  },
-);
+// External notification navigation also updates the visible filter controls.
+watch(() => [props.initialGroup, props.initialCategory], ([group, category]) => {
+  currentGroup.value = group;
+  currentCategory.value = category;
+  currentGroupName.value = groups.value.find((item) => item.id === group)?.name || 'All Groups';
+  categories.value = categoriesByGroup.value[group] || categoriesByGroup.value.all || [{ id: 'all', name: 'All' }];
+});
 
 onMounted(() => {
   // Only fetch data if we're in the browser and don't have initial data
@@ -327,27 +328,51 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col border rounded-lg space-y-4 mb-4 px-3 py-2">
-    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-      <div class="flex items-center">
-        <DropdownMenu>
+  <div
+    class="filter-toolbar mb-4 rounded-lg border border-border/70 bg-card p-1.5 shadow-sm"
+    :class="{ 'filter-toolbar-loading': props.loading }"
+    :aria-busy="props.loading"
+  >
+    <div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[190px_minmax(0,1fr)] sm:items-center">
+      <div class="group-control min-w-0 rounded-md">
+        <DropdownMenu v-model:open="groupMenuOpen">
           <DropdownMenuTrigger as-child>
-            <Button variant="outline" class="flex items-center gap-1">
-              <span class="truncate max-w-[150px]">{{ currentGroupName }}</span>
-              <ChevronDown class="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              class="group-trigger isolate flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 text-foreground ring-1 ring-inset ring-transparent hover:bg-muted hover:ring-border/70 focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+              aria-label="Choose notification group"
+            >
+              <Layers3 class="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span class="max-w-[180px] truncate text-sm font-medium">{{ currentGroupName }}</span>
+              <ChevronDown
+                class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200"
+                :class="{ 'rotate-180': groupMenuOpen }"
+              />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" class="w-[200px]">
+          <DropdownMenuContent :side-offset="6" align="start" class="group-menu w-[228px] rounded-lg p-1.5 shadow-lg">
             <DropdownMenuItem
               v-for="group in groups"
               :key="group.id"
-              :class="{ 'bg-accent': currentGroup === group.id }"
+              class="mb-1 min-h-10 gap-2.5 rounded-md px-2.5 py-2 transition-colors last:mb-0"
+              :class="{
+                'bg-accent/80 text-accent-foreground': currentGroup === group.id,
+                'hover:bg-accent/50': currentGroup !== group.id,
+              }"
               @click="handleGroupChange(group.id)"
             >
-              <div class="flex justify-between items-center w-full">
-                <span class="truncate">{{ group.name }}</span>
-                <span v-if="group.count !== undefined" class="text-xs text-muted-foreground">{{ group.count }}</span>
-              </div>
+              <Check
+                class="h-4 w-4 shrink-0 transition-opacity"
+                :class="currentGroup === group.id ? 'opacity-100' : 'opacity-0'"
+              />
+              <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
+              <span
+                v-if="group.count !== undefined"
+                class="min-w-6 rounded-sm bg-muted/70 px-1.5 py-0.5 text-center text-[10px] font-semibold tabular-nums text-muted-foreground"
+              >
+                {{ group.count }}
+              </span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -363,14 +388,44 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Hide scrollbar for Chrome, Safari and Opera */
-.overflow-x-auto::-webkit-scrollbar {
-  display: none;
+.filter-toolbar {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
-/* Hide scrollbar for IE, Edge and Firefox */
-.overflow-x-auto {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+.filter-toolbar:focus-within {
+  border-color: hsl(var(--foreground) / 0.2);
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.08);
+}
+
+.group-trigger[data-state='open'] {
+  background-color: hsl(var(--accent));
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.1);
+}
+
+.group-trigger {
+  overflow: visible;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.group-trigger:focus-visible {
+  outline: none;
+}
+
+.filter-toolbar-loading {
+  border-color: hsl(var(--foreground) / 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filter-toolbar,
+  .group-trigger,
+  .group-trigger :deep(svg) {
+    transition: none;
+  }
 }
 </style>

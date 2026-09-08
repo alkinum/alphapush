@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, computed, shallowRef } from 'vue';
 import type { Ref } from 'vue';
 import type { Notification } from '@/types/notification';
 import { useToast } from '@/components/ui/sonner/use-toast';
@@ -13,19 +13,44 @@ export interface UINotification extends Notification {
 /**
  * Composable for managing notification data and operations
  */
-export function useNotificationsData(initialNotifications: Notification[] = []) {
+interface FetchNotificationsOptions {
+  preserveExisting?: boolean;
+}
+
+export function useNotificationsData(initialNotifications: Notification[] = [], initialTotalPages = 0) {
   const { toast } = useToast();
-  const notifications = ref<UINotification[]>(initialNotifications as UINotification[]);
-  const totalPages = ref(1);
+  const notifications = shallowRef<UINotification[]>([...(initialNotifications as UINotification[])]);
+  const totalPages = ref(initialTotalPages);
   const currentPage = ref(1);
   const isLoading = ref(false);
   const initialLoading = ref(false);
   const isLoadFailed = ref(false);
-  const retryCount = ref(0);
-  const maxRetries = 3;
+  const failedPage = ref<number | null>(null);
+  let activeRequest: AbortController | null = null;
+  let requestSequence = 0;
 
   // Computed property for empty state
   const isEmpty = computed(() => notifications.value.length === 0);
+  const hasMoreNotifications = computed(() => currentPage.value < totalPages.value);
+
+  const mergeUniqueNotifications = (existing: UINotification[], incoming: Notification[]) => {
+    const seenIds = new Set(existing.map((notification) => notification.id));
+    const uniqueIncoming = incoming.filter((notification) => {
+      if (seenIds.has(notification.id)) return false;
+      seenIds.add(notification.id);
+      return true;
+    }) as UINotification[];
+    return [...existing, ...uniqueIncoming];
+  };
+
+  const updateNotification = (
+    notificationId: string,
+    update: (notification: UINotification) => UINotification,
+  ) => {
+    notifications.value = notifications.value.map((notification) =>
+      notification.id === notificationId ? update(notification) : notification
+    );
+  };
 
   /**
    * Fetch notifications from the API
@@ -34,50 +59,81 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
     page: number,
     group: string = '',
     category: string = '',
+    options: FetchNotificationsOptions = {},
   ) => {
-    if (isLoading.value || isLoadFailed.value) {
-      return;
+    if (isLoading.value && page !== 1) {
+      return false;
     }
+
+    if (page === 1) {
+      activeRequest?.abort();
+      isLoadFailed.value = false;
+    } else if (isLoadFailed.value || page > totalPages.value) {
+      return false;
+    }
+
+    const requestId = ++requestSequence;
+    const controller = new AbortController();
+    activeRequest = controller;
     isLoading.value = true;
 
     try {
       // Construct the URL with only valid parameters
       let url = `/api/notifications?page=${page}&pageSize=10`;
-      if (group && group !== 'all') url += `&group=${group}`;
-      if (category && category !== 'all') url += `&category=${category}`;
+      if (group && group !== 'all') url += `&group=${encodeURIComponent(group)}`;
+      if (category && category !== 'all') url += `&category=${encodeURIComponent(category)}`;
 
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch notifications (${response.status})`);
+      }
+
       const data: { notifications: Notification[]; totalPages: number } = await response.json();
+      if (requestId !== requestSequence) {
+        return false;
+      }
 
       if (page === 1) {
-        notifications.value = data.notifications || [];
+        const firstPage = (data.notifications || []) as UINotification[];
+        notifications.value = options.preserveExisting
+          ? mergeUniqueNotifications(firstPage, notifications.value)
+          : firstPage;
       } else {
-        notifications.value.push(...(data.notifications || []));
+        notifications.value = mergeUniqueNotifications(notifications.value, data.notifications || []);
       }
 
       totalPages.value = data.totalPages || 0;
-      currentPage.value = page;
+      currentPage.value = options.preserveExisting ? Math.max(currentPage.value, page) : page;
       isLoadFailed.value = false;
-      retryCount.value = 0;
+      failedPage.value = null;
+      return true;
     } catch (error) {
-      console.error('Error fetching notifications:', error);
-      retryCount.value += 1;
-      if (retryCount.value >= maxRetries) {
-        isLoadFailed.value = true;
+      if (requestId !== requestSequence || controller.signal.aborted) {
+        return false;
       }
+
+      console.error('Error fetching notifications:', error);
+      failedPage.value = page;
+      isLoadFailed.value = true;
+      return false;
     } finally {
-      isLoading.value = false;
-      initialLoading.value = false;
+      if (requestId === requestSequence) {
+        isLoading.value = false;
+        initialLoading.value = false;
+        activeRequest = null;
+      }
     }
   };
 
   /**
    * Load more notifications (for pagination)
    */
-  const loadMoreNotifications = (group: string = '', category: string = '') => {
-    if (currentPage.value < totalPages.value) {
-      fetchNotifications(currentPage.value + 1, group, category);
+  const loadMoreNotifications = async (group: string = '', category: string = '') => {
+    if (!hasMoreNotifications.value || isLoading.value || isLoadFailed.value) {
+      return false;
     }
+
+    return fetchNotifications(currentPage.value + 1, group, category);
   };
 
   /**
@@ -85,8 +141,8 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
    */
   const retryFetchNotifications = (group: string = '', category: string = '') => {
     isLoadFailed.value = false;
-    retryCount.value = 0;
-    fetchNotifications(currentPage.value, group, category);
+    const page = failedPage.value ?? Math.max(1, currentPage.value);
+    return fetchNotifications(page, group, category);
   };
 
   /**
@@ -95,7 +151,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
   const handleNotificationDeleted = (deletedId: string) => {
     const index = notifications.value.findIndex((n) => n.id === deletedId);
     if (index !== -1) {
-      notifications.value[index].isDeleting = true;
+      updateNotification(deletedId, (notification) => ({ ...notification, isDeleting: true }));
       setTimeout(() => {
         notifications.value = notifications.value.filter((n) => n.id !== deletedId);
       }, 500); // This should match the duration of your animation
@@ -141,14 +197,14 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
 
     if (matchesCurrentFilter) {
       // Add to the current view with animation
-      const uiNotification = newNotification as UINotification;
-      uiNotification.isNew = true;
-      notifications.value.unshift(uiNotification);
+      if (notifications.value.some((notification) => notification.id === newNotification.id)) {
+        return;
+      }
+
+      const uiNotification = { ...newNotification, isNew: true } as UINotification;
+      notifications.value = [uiNotification, ...notifications.value];
       setTimeout(() => {
-        const index = notifications.value.findIndex((n) => n.id === newNotification.id);
-        if (index !== -1) {
-          notifications.value[index].isNew = false;
-        }
+        updateNotification(newNotification.id, (notification) => ({ ...notification, isNew: false }));
       }, 500); // This should match the duration of your animation
     } else {
       // Show toast notification
@@ -178,18 +234,15 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
 
     if (index !== -1) {
       // Update the existing notification
-      notifications.value[index] = {
-        ...notifications.value[index],
+      updateNotification(updatedNotification.id, (notification) => ({
+        ...notification,
         ...updatedNotification,
-        highlight: true // Highlight to show it was updated
-      };
+        highlight: true,
+      }));
 
       // Remove highlight after a delay
       setTimeout(() => {
-        const updatedIndex = notifications.value.findIndex((n) => n.id === updatedNotification.id);
-        if (updatedIndex !== -1) {
-          notifications.value[updatedIndex].highlight = false;
-        }
+        updateNotification(updatedNotification.id, (notification) => ({ ...notification, highlight: false }));
       }, 3000);
     } else if (
       (currentGroup.value === 'all' || currentGroup.value === '' || updatedNotification.groupId === currentGroup.value) &&
@@ -199,7 +252,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
       // Consider refetching first page or handling differently
       const group = currentGroup.value === 'all' ? '' : currentGroup.value;
       const category = currentCategory.value === 'all' ? '' : currentCategory.value;
-      fetchNotifications(1, group, category);
+      fetchNotifications(1, group, category, { preserveExisting: true });
     }
   };
 
@@ -241,7 +294,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
 
     if (index !== -1) {
       // Set highlight flag
-      notifications.value[index].highlight = true;
+      updateNotification(notificationId, (notification) => ({ ...notification, highlight: true }));
 
       // Scroll to the notification
       setTimeout(() => {
@@ -252,10 +305,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
 
         // Remove highlight after a delay
         setTimeout(() => {
-          const updatedIndex = notifications.value.findIndex((n) => n.id === notificationId);
-          if (updatedIndex !== -1) {
-            notifications.value[updatedIndex].highlight = false;
-          }
+            updateNotification(notificationId, (notification) => ({ ...notification, highlight: false }));
         }, 3000);
       }, 100);
     } else {
@@ -268,6 +318,7 @@ export function useNotificationsData(initialNotifications: Notification[] = []) 
     notifications,
     totalPages,
     currentPage,
+    hasMoreNotifications,
     isLoading,
     initialLoading,
     isLoadFailed,

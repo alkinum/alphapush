@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import hljs from 'highlight.js/lib/core';
 import bash from 'highlight.js/lib/languages/bash';
 import css from 'highlight.js/lib/languages/css';
@@ -17,6 +17,7 @@ import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
 import { marked } from 'marked';
+import { sanitizeNotificationHtml } from '@/utils/notificationHtml';
 import { useSwipe } from '@vueuse/core';
 import { Icon } from '@iconify/vue';
 import { decrypt } from '@alkinum/alphapush-encryption';
@@ -84,8 +85,19 @@ const showDeleteDialog = ref(false);
 const isLoading = ref(false);
 
 const content = ref<HTMLElement | null>(null);
-const isTruncated = ref(false);
-const buttonText = ref('View All');
+const isExpanded = ref(false);
+const hasOverflow = ref(false);
+let contentObserver: ResizeObserver | null = null;
+const measureContent = () => {
+  hasOverflow.value = (content.value?.scrollHeight ?? 0) > 315;
+};
+watch(content, (element) => {
+  contentObserver?.disconnect();
+  if (!element) return;
+  contentObserver = new ResizeObserver(measureContent);
+  contentObserver.observe(element);
+  measureContent();
+});
 const isMobile = ref(false);
 const isSwiped = ref(false);
 const cardRef = ref<HTMLElement | null>(null);
@@ -109,17 +121,8 @@ const MAX_LINES = 10;
 const LONG_PRESS_DURATION_MS = 500;
 const LONG_PRESS_MOVE_TOLERANCE = 8;
 
-// Check if notification icons should be displayed
-// Use a safe approach that works in both client and server environments
-const showIcons = computed(() => {
-  // During SSR, default to true
-  if (typeof window === 'undefined') {
-    return true;
-  }
-
-  // In browser, use the preference manager with default value true
-  return userPreferenceManager.getPreference('showNotificationIcons', true);
-});
+// Match the server render first, then apply the browser preference after hydration.
+const showIcons = ref(true);
 
 // Compute a default title if none is provided
 const displayTitle = computed(() => {
@@ -132,8 +135,8 @@ const displayTitle = computed(() => {
     return props.notification.category;
   }
 
-  if (props.notification.notification_group) {
-    return props.notification.notification_group;
+  if (props.notification.group) {
+    return props.notification.group;
   }
 
   // Default title if nothing else is available
@@ -171,21 +174,13 @@ const renderedContent = computed(() => {
     if (decryptedContent.value === null) {
       return null; // Return null to indicate loading state
     }
-    return marked(decryptedContent.value, { renderer });
+    return sanitizeNotificationHtml(marked.parse(decryptedContent.value, { renderer, async: false }));
   }
-  return marked(props.notification.content, { renderer });
+  return sanitizeNotificationHtml(marked.parse(props.notification.content, { renderer, async: false }));
 });
 
-const contentLength = computed(() => props.notification.content.length);
-const isLikelyTruncated = computed(() => contentLength.value > 650);
-
-const toggleContent = () => {
-  if (content.value) {
-    content.value.classList.toggle('max-h-[314px]');
-    isTruncated.value = !isTruncated.value;
-    buttonText.value = isTruncated.value ? 'View All' : 'Show Less';
-  }
-};
+watch(renderedContent, () => { void nextTick(measureContent); });
+const toggleContent = () => { isExpanded.value = !isExpanded.value; };
 
 const handleDelete = async () => {
   try {
@@ -281,7 +276,7 @@ const handleCardClick = (event: MouseEvent) => {
     return;
   }
 
-  if (props.selectionMode && !isMobile.value && !isInteractiveTarget(event.target)) {
+  if (props.selectionMode && !isInteractiveTarget(event.target)) {
     emit('selectionToggle', props.notification.id);
     return;
   }
@@ -311,6 +306,15 @@ const approvalState = ref(props.notification.approvalState);
 
 const showApprovalButtons = computed(() => isApprovalProcess.value && approvalState.value === 'pending');
 const isUnread = computed(() => !props.notification.readAt);
+const formattedTime = ref('');
+const notificationDateTime = computed(() => {
+  const createdAt = new Date(props.notification.createdAt);
+  return Number.isNaN(createdAt.getTime()) ? undefined : createdAt.toISOString();
+});
+const metadataLabel = computed(() => {
+  return [props.notification.group, props.notification.category].filter(Boolean).join(' / ');
+});
+
 const handleApprove = async () => {
   await updateApprovalState('approved');
 };
@@ -352,11 +356,16 @@ onMounted(async () => {
   // Only run client-side code in the browser
   if (typeof window !== 'undefined') {
     isMobile.value = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    showIcons.value = userPreferenceManager.getPreference('showNotificationIcons', true);
 
-    if (content.value && content.value.scrollHeight > content.value.clientHeight) {
-      isTruncated.value = true;
-    } else {
-      isTruncated.value = false;
+    const createdAt = new Date(props.notification.createdAt);
+    if (!Number.isNaN(createdAt.getTime())) {
+      formattedTime.value = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(createdAt);
     }
 
     // Clear the query parameter
@@ -393,14 +402,8 @@ onMounted(async () => {
     const approvalId = urlParams.get('approvalId');
     const action = urlParams.get('action')?.toLowerCase();
 
-    try {
-      if (approvalId === props.notification.approvalId && (action === 'approve' || action === 'reject')) {
-        await updateApprovalState(action === 'approve' ? 'approved' : 'rejected');
-      }
-    } catch (error) {
-      console.error('Error processing approval action:', error);
-    } finally {
-      // Remove approvalId and action from query parameters
+    if (approvalId && approvalId === props.notification.approvalId && (action === 'approve' || action === 'reject')) {
+      await updateApprovalState(action === 'approve' ? 'approved' : 'rejected');
       const url = new URL(window.location.href);
       url.searchParams.delete('approvalId');
       url.searchParams.delete('action');
@@ -429,6 +432,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  contentObserver?.disconnect();
   clearLongPressTimer();
 });
 
@@ -438,20 +442,20 @@ const handleCancelDelete = () => {
 </script>
 
 <template>
-  <div v-if="isLoading" class="w-full mb-4">
-    <Card>
-      <CardHeader class="pt-6 pb-2 px-6">
+  <div v-if="isLoading" class="mb-3 w-full">
+    <Card class="shadow-sm">
+      <CardHeader class="px-5 pb-2 pt-5">
         <div class="flex items-center gap-3">
           <div class="flex-shrink-0">
             <Skeleton class="w-6 h-6 rounded-sm" />
           </div>
           <div class="flex-grow">
             <Skeleton class="h-5 w-32" />
-            <Skeleton v-if="Math.random() > 0.5" class="h-4 w-24 mt-1" />
+            <Skeleton v-if="skeletonLines.length > 2" class="mt-1 h-4 w-24" />
           </div>
         </div>
       </CardHeader>
-      <CardContent class="px-6 py-4">
+      <CardContent class="px-5 pb-5 pt-3">
         <div class="space-y-2">
           <Skeleton v-for="(line, index) in skeletonLines" :key="index" class="h-4" :class="line.width" />
         </div>
@@ -464,7 +468,7 @@ const handleCancelDelete = () => {
         <div
           ref="cardRef"
           :id="`notification-${props.notification.id}`"
-          class="w-full mb-4 overflow-hidden notification-card"
+          class="notification-card mb-3 w-full"
           :class="{
             'highlight-effect': props.notification.highlight,
             swiped: isSwiped,
@@ -481,40 +485,59 @@ const handleCancelDelete = () => {
           @pointerleave="handlePointerEnd"
           @pointercancel="handlePointerEnd"
         >
-      <Card>
-        <CardHeader class="pt-6 pb-2 px-6">
+      <Card class="notification-card-surface overflow-hidden rounded-xl shadow-sm">
+        <CardHeader class="px-5 pb-2 pt-5">
           <div class="flex items-center gap-3">
-            <div v-if="props.selectionMode && !isMobile" class="flex-shrink-0" @click.stop>
-              <Checkbox
-                :checked="props.selected"
-                aria-label="Select notification"
-                @update:checked="handleSelectionCheckboxChange"
-              />
-            </div>
+            <Transition name="selection-checkbox">
+              <div v-if="props.selectionMode" class="flex-shrink-0" @click.stop>
+                <Checkbox
+                  :checked="props.selected"
+                  aria-label="Select notification"
+                  class="h-5 w-5 rounded border-border"
+                  @update:checked="handleSelectionCheckboxChange"
+                />
+              </div>
+            </Transition>
             <div v-if="showIcons && props.notification.iconUrl" class="flex-shrink-0">
               <img
                 :src="props.notification.iconUrl"
                 alt="Notification icon"
-                class="w-6 h-6 object-contain rounded-sm"
+                class="h-8 w-8 rounded-md border border-border bg-muted/30 object-contain p-1"
                 onerror="this.style.display='none'"
               />
             </div>
-            <div class="flex-grow">
-              <div class="flex items-center gap-2">
-                <span
-                  v-if="isUnread"
-                  class="h-2 w-2 flex-shrink-0 rounded-full bg-primary"
-                  aria-label="Unread notification"
-                ></span>
-                <CardTitle>{{ displayTitle }}</CardTitle>
+            <div class="min-w-0 flex-grow">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-2">
+                  <span
+                    v-if="isUnread"
+                    class="h-2 w-2 flex-shrink-0 rounded-full bg-[hsl(var(--highlight))]"
+                    aria-label="Unread notification"
+                  ></span>
+                  <CardTitle class="truncate text-base leading-5">{{ displayTitle }}</CardTitle>
+                </div>
+                <time
+                  v-if="formattedTime"
+                  :datetime="notificationDateTime"
+                  class="hidden shrink-0 text-xs text-muted-foreground sm:block"
+                >
+                  {{ formattedTime }}
+                </time>
               </div>
-              <p v-if="hasSubtitle" class="text-sm text-muted-foreground mt-1">
+              <p v-if="hasSubtitle" class="mt-1 truncate text-sm text-muted-foreground">
                 {{ props.notification.subtitle }}
               </p>
+              <div v-if="metadataLabel || formattedTime" class="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <span v-if="metadataLabel" class="truncate">{{ metadataLabel }}</span>
+                <span v-if="metadataLabel && formattedTime" class="sm:hidden">·</span>
+                <time v-if="formattedTime" :datetime="notificationDateTime" class="shrink-0 sm:hidden">
+                  {{ formattedTime }}
+                </time>
+              </div>
             </div>
           </div>
         </CardHeader>
-        <CardContent class="relative pt-2 pb-4">
+        <CardContent class="relative px-5 pb-5 pt-3" :class="{ 'pb-12': hasOverflow && !isApprovalProcess }">
           <template v-if="renderedContent === null && props.notification.type === 'encrypted'">
             <div class="space-y-1">
               <Skeleton
@@ -529,24 +552,24 @@ const handleCancelDelete = () => {
             v-else
             ref="content"
             class="markdown-content"
-            :class="{ 'max-h-[314px] overflow-hidden': isLikelyTruncated && !isApprovalProcess }"
+            :class="{ 'max-h-[314px] overflow-hidden': !isExpanded && !isApprovalProcess }"
             v-html="renderedContent"
           ></div>
           <div
-            v-if="isLikelyTruncated && !isApprovalProcess"
-            class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-background to-transparent pointer-events-none fade-out"
+            v-if="hasOverflow && !isExpanded && !isApprovalProcess"
+            class="absolute bottom-0 left-0 right-0 h-36 bg-gradient-to-t from-20% from-card to-transparent pointer-events-none fade-out"
           ></div>
           <Button
-            v-if="isLikelyTruncated && !isApprovalProcess"
+            v-if="hasOverflow && !isApprovalProcess"
             variant="ghost"
             size="sm"
             class="absolute bottom-2 left-1/2 transform -translate-x-1/2 view-all-btn"
             @click.stop="toggleContent"
           >
-            {{ buttonText }}
+            {{ isExpanded ? 'Show Less' : 'View All' }}
           </Button>
         </CardContent>
-        <CardFooter v-if="isApprovalProcess" class="px-6 py-4 border-t">
+        <CardFooter v-if="isApprovalProcess" class="border-t px-5 py-4">
           <div v-if="showApprovalButtons" class="flex justify-end w-full gap-4">
             <Button @click="handleReject" variant="destructive" class="flex-1">Reject</Button>
             <Button @click="handleApprove" variant="secondary" class="flex-1">Approve</Button>
@@ -617,7 +640,6 @@ const handleCancelDelete = () => {
     sans-serif;
   line-height: 1.5;
   color: hsl(var(--foreground));
-  padding-right: 16px;
   font-size: 0.875rem;
 }
 
@@ -652,7 +674,7 @@ const handleCancelDelete = () => {
 }
 
 .markdown-content p {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .markdown-content p:only-child {
@@ -719,16 +741,40 @@ const handleCancelDelete = () => {
 }
 
 .notification-card {
-  transition: transform 0.3s ease;
+  contain: layout paint style;
+  contain-intrinsic-size: auto 220px;
+  content-visibility: auto;
   position: relative;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   z-index: 1;
+}
+
+.notification-card-surface {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notification-card:not(.swiped):not(.deleting):hover {
+    box-shadow: 0 8px 24px hsl(228 30% 2% / 0.22);
+    transform: translateY(-1px);
+  }
+
+  .notification-card:hover > .notification-card-surface {
+    border-color: hsl(var(--foreground) / 0.2);
+  }
 }
 
 .notification-card.selection-mode {
   cursor: pointer;
 }
 
-.notification-card.selected .border {
+.notification-card.selected > .notification-card-surface {
+  background-color: hsl(var(--accent) / 0.35);
   border-color: hsl(var(--primary));
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4);
 }
@@ -777,8 +823,8 @@ const handleCancelDelete = () => {
   animation: slide-in 0.5s ease-out;
 }
 
-.notification-card.unread-notification .border {
-  border-color: hsl(var(--primary) / 0.5);
+.notification-card.unread-notification > .notification-card-surface {
+  border-color: hsl(var(--highlight) / 0.25);
 }
 
 @keyframes slide-in {
@@ -794,6 +840,36 @@ const handleCancelDelete = () => {
 
 .notification-card .border-t {
   border-top: 1px solid hsl(var(--border));
+}
+
+.selection-checkbox-enter-active,
+.selection-checkbox-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 200ms ease;
+}
+
+.selection-checkbox-enter-from,
+.selection-checkbox-leave-to {
+  opacity: 0;
+  transform: scale(0.75);
+  width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-card,
+  .notification-card-surface,
+  .selection-checkbox-enter-active,
+  .selection-checkbox-leave-active {
+    animation: none;
+    transition: none;
+  }
+
+  .notification-card:hover {
+    box-shadow: none;
+    transform: none;
+  }
 }
 
 .markdown-content .skeleton {

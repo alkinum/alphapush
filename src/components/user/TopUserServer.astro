@@ -19,6 +19,6 @@ const userInitials = (nickname || email.split('@')[0]).slice(0, 2).toUpperCase()
     >
       <span class="text-xs font-medium">{userInitials}</span>
     </div>
-    <span class="text-sm font-medium">{displayName}</span>
+    <span class="hidden max-w-[160px] truncate text-sm font-medium sm:block">{displayName}</span>
   </div>
 </div>

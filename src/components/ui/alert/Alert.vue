@@ -13,6 +13,10 @@ const props = defineProps<{
   id?: string
 }>()
 
+const emit = defineEmits<{
+  'dismiss-forever': []
+}>()
+
 const isVisible = ref(true)
 const showDismissForever = ref(false)
 
@@ -29,6 +33,7 @@ function dismissForever() {
   if (props.allowDismissForever && props.id) {
     isVisible.value = false
     localStorage.setItem(`alert_${props.id}_dismissed`, "true")
+    emit('dismiss-forever')
   }
 }
 

@@ -93,15 +93,7 @@ const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini
   />
   <CookiePrivacyBanner client:load />
 </Page>
-<script>
-  import { initializePushModule, registerServiceWorker } from '@/modules/pushSubscription';
 
-  // Initialize push module
-  initializePushModule();
-
-  // Register service worker
-  registerServiceWorker();
-</script>
 
 <style is:global>
   html,

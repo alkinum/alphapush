@@ -6,6 +6,7 @@ import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon
 import { onMounted, onUnmounted } from "vue"
 import { toast } from "vue-sonner"
 import { Toaster as Sonner } from "vue-sonner"
+import "vue-sonner/style.css"
 import { renderToast, TOAST_DISMISS_EVENT, TOAST_EVENT } from "./use-toast"
 
 const props = defineProps<ToasterProps>()
@@ -54,6 +55,7 @@ onUnmounted(() => {
       },
     }"
     v-bind="delegatedProps"
+    :theme="props.theme ?? 'dark'"
   >
     <template #success-icon>
       <CircleCheckIcon class="size-4" />

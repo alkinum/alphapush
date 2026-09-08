@@ -23,12 +23,17 @@ const canDismissForever = computed(() => allowDismissForever?.value ?? false)
 
 <template>
   <div :class="cn('relative flex items-center justify-between', props.class)">
-    <h5 :class="cn(`${isClosable ? '' : 'mb-1 '}font-medium leading-none tracking-tight`)">
+    <h5 :class="cn(`${isClosable ? '' : 'mb-1 '}min-w-0 flex-1 pr-2 font-medium leading-none tracking-tight`)">
       <slot />
     </h5>
     <div v-if="isClosable" class="flex items-center">
       <template v-if="!isDismissForeverPromptVisible || !canDismissForever">
-        <button type="button" aria-label="Close alert" @click="closeAlert">
+        <button
+          type="button"
+          class="-mr-1 rounded-sm p-1 opacity-80 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Close alert"
+          @click="closeAlert"
+        >
           <Icon icon="mdi:close" class="h-4 w-4" />
         </button>
       </template>

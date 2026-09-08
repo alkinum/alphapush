@@ -1,14 +1,14 @@
 <template>
   <Alert
-    class="mb-4"
-    variant="warning"
+    class="mb-4 rounded-xl border-border/60 bg-card/45 px-5 py-4 text-foreground"
+    variant="default"
     :closable="true"
     v-if="shouldShow"
     id="enhance-experience"
     :allowDismissForever="true"
   >
-    <AlertTitle class="mb-2 font-bold">Enhance Your Experience</AlertTitle>
-    <AlertDescription>{{ pwaInstallTip }}</AlertDescription>
+    <AlertTitle class="mb-1.5 flex items-center gap-2 text-[13px] font-medium"><span class="flex items-center gap-2"><svg class="h-4 w-4 shrink-0 text-[hsl(var(--highlight))]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="3" /><path d="M10 18h4M12 6v7m-3-3 3 3 3-3" /></svg>AlphaPush, closer at hand</span></AlertTitle>
+    <AlertDescription class="max-w-[56ch] text-xs leading-6 text-muted-foreground">{{ pwaInstallTip }}</AlertDescription>
   </Alert>
 </template>
 
@@ -27,8 +27,8 @@ const shouldShow = ref(false);
 
 const pwaInstallTip = computed(() =>
   props.isMobile
-    ? 'For optimal performance and reliable push notifications, we recommend adding this app to your home screen.'
-    : "For the best experience, we recommend using this app in a standalone window. Click the install button in your browser's address bar or menu to set it up.",
+    ? 'Add AlphaPush to your Home Screen for quick access and push notifications.'
+    : "Install AlphaPush from your browser’s address bar or menu for a dedicated window and quick access.",
 );
 
 function checkPwaInstallation() {

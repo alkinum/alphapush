@@ -1,11 +1,11 @@
 <template>
   <div class="flex items-center" :style="{ display: isVisible ? 'flex' : 'none' }">
     <DropdownMenu>
-      <DropdownMenuTrigger class="flex items-center space-x-2">
+      <DropdownMenuTrigger class="flex min-w-0 items-center gap-2 rounded-lg" aria-label="Account settings">
         <Avatar>
           <AvatarFallback>{{ userInitials }}</AvatarFallback>
         </Avatar>
-        <span class="text-sm font-medium">{{ displayName }}</span>
+        <span class="hidden max-w-[160px] truncate text-sm font-medium sm:block">{{ displayName }}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuItem v-if="localPushToken" @click="copyPushToken">

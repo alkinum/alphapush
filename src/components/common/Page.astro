@@ -42,7 +42,7 @@ const receiptToken = url.searchParams.get('receiptToken');
     <meta name="generator" content={Astro.generator} />
     <title>AlphaPush</title>
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#09090B" />
+    <meta name="theme-color" content="#0e1015" />
     <meta name="referrer" content="no-referrer" />
     <link rel="apple-touch-icon" href="/icons/icon-512x512.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -75,6 +75,10 @@ const receiptToken = url.searchParams.get('receiptToken');
       import { initializeDeliveryReceipts } from '@/modules/deliveryReceipts';
       import { initializeSessionKeepalive } from '@/modules/sessionKeepalive';
 
+      import { initializePushModule, registerServiceWorker } from '@/modules/pushSubscription';
+
+      initializePushModule();
+      registerServiceWorker();
       initializeAppBadgeSync();
       initializeDeliveryReceipts();
       initializeSessionKeepalive();

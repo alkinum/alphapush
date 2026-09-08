@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { Icon } from '@iconify/vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,6 +48,10 @@ const selectedNotificationIds = ref<Set<string>>(new Set());
 const showBatchDeleteDialog = ref(false);
 const isDeletingSelected = ref(false);
 let visibilitySyncInterval: number | null = null;
+let loadMoreObserver: IntersectionObserver | null = null;
+let loadMoreFrame: number | null = null;
+const loadMoreSentinel = ref<HTMLElement | null>(null);
+const isLoadTriggerVisible = ref(false);
 const selectedCount = computed(() => selectedNotificationIds.value.size);
 const selectedDeleteDescription = computed(() => {
   const count = selectedCount.value;
@@ -82,7 +86,8 @@ const {
   handleUpdateNotification,
   fetchNotificationById,
   highlightNotification,
-} = useNotificationsData(props.initialNotifications);
+  hasMoreNotifications,
+} = useNotificationsData(props.initialNotifications, props.initialTotalPages);
 
 const hasNotifications = computed(() => notifications.value.length > 0);
 
@@ -190,12 +195,27 @@ const customSwitchToNotificationContext = (notification: Notification) => {
   }
 };
 
-// Handle scroll for infinite loading
-const handleScroll = () => {
-  if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 100) {
-    loadMoreNotifications(currentGroup.value, currentCategory.value);
-  }
+// Observe the list end regardless of whether the window or mobile body scrolls.
+const scheduleLoadMore = () => {
+  if (loadMoreFrame !== null || !isLoadTriggerVisible.value || !hasMoreNotifications.value || isLoading.value || isLoadFailed.value) return;
+  loadMoreFrame = window.requestAnimationFrame(async () => {
+    loadMoreFrame = null;
+    if (!loadMoreSentinel.value || loadMoreSentinel.value.getBoundingClientRect().top > window.innerHeight + 300) return;
+    await loadMoreNotifications(currentGroup.value, currentCategory.value);
+  });
 };
+const setupLoadMoreObserver = () => {
+  loadMoreObserver?.disconnect();
+  isLoadTriggerVisible.value = false;
+  if (!loadMoreSentinel.value) return;
+  loadMoreObserver = new IntersectionObserver(([entry]) => {
+    isLoadTriggerVisible.value = entry?.isIntersecting ?? false;
+    scheduleLoadMore();
+  }, { rootMargin: '300px 0px' });
+  loadMoreObserver.observe(loadMoreSentinel.value);
+};
+watch(loadMoreSentinel, () => { void nextTick(setupLoadMoreObserver); });
+watch([isLoading, hasMoreNotifications], () => { void nextTick(scheduleLoadMore); });
 
 // Process notifications from SSE
 const processNotificationFromSSE = (notification: Notification) => {
@@ -296,7 +316,9 @@ const handleRefresh = async () => {
 
 const syncVisibleNotifications = () => {
   if (document.visibilityState === 'visible' && userEmail.value) {
-    void fetchNotifications(1, currentGroup.value, currentCategory.value);
+    if (!isLoading.value && !isLoadFailed.value) {
+      void fetchNotifications(1, currentGroup.value, currentCategory.value, { preserveExisting: true });
+    }
   }
 };
 
@@ -313,8 +335,7 @@ onMounted(() => {
       fetchNotifications(1, currentGroup.value, currentCategory.value);
     }
 
-    // Setup scroll listener for window
-    window.addEventListener('scroll', handleScroll);
+    setupLoadMoreObserver();
 
     // Setup reconnect listener for SSE
     document.addEventListener('reconnectSSE', handleReconnectSSE as EventListener);
@@ -338,7 +359,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   disconnect();
-  window.removeEventListener('scroll', handleScroll);
+  loadMoreObserver?.disconnect();
+  if (loadMoreFrame !== null) window.cancelAnimationFrame(loadMoreFrame);
   document.removeEventListener('reconnectSSE', handleReconnectSSE as EventListener);
   document.removeEventListener('alphapush:notifications-read', handleNotificationsRead as EventListener);
   document.removeEventListener('alphapush:new-notification', handleServiceWorkerNotification as EventListener);
@@ -400,7 +422,7 @@ watch(notifications, (currentNotifications) => {
               @filterChange="handleFilterChange"
             />
 
-            <div v-if="hasNotifications" class="hidden md:flex items-center justify-end gap-2 mb-3">
+            <div v-if="hasNotifications" class="items-center justify-end gap-2 mb-3" :class="selectionMode ? 'flex' : 'hidden md:flex'">
               <template v-if="selectionMode">
                 <span class="mr-auto text-sm font-medium text-muted-foreground">{{ selectedCount }} selected</span>
                 <Button variant="ghost" size="sm" @click="selectAllVisibleNotifications">Select all</Button>
@@ -442,6 +464,7 @@ watch(notifications, (currentNotifications) => {
                   </CardContent>
                 </Card>
               </template>
+              <div v-if="hasMoreNotifications" ref="loadMoreSentinel" class="h-px" aria-hidden="true"></div>
               <div v-if="isLoading" class="flex justify-center mt-4 overflow-hidden">
                 <Icon icon="mdi:loading" class="animate-spin h-6 w-6 text-primary" />
               </div>

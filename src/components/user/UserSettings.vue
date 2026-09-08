@@ -503,7 +503,7 @@ defineExpose({ openSettings });
 
 <template>
   <Sheet v-model:open="isOpen">
-    <SheetContent class="flex flex-col">
+    <SheetContent class="flex w-full flex-col sm:max-w-lg">
       <SheetHeader>
         <SheetTitle>User Settings</SheetTitle>
         <SheetDescription>Manage your account, push notification settings, and security.</SheetDescription>
@@ -516,13 +516,13 @@ defineExpose({ openSettings });
             </CardHeader>
             <CardContent :class="cn('pt-0')">
               <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
+                <div class="flex min-w-0 items-center space-x-4">
                   <Avatar>
                     <AvatarFallback>{{ userInitials }}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <p class="text-sm font-medium">{{ displayName }}</p>
-                    <p class="text-xs text-muted-foreground">{{ props.userInfo.email }}</p>
+                  <div class="min-w-0">
+                    <p class="break-words text-sm font-medium">{{ displayName }}</p>
+                    <p class="break-all text-xs text-muted-foreground">{{ props.userInfo.email }}</p>
                   </div>
                 </div>
                 <Badge v-if="props.userInfo.role === 'admin'" variant="secondary" class="text-xs py-1 select-none">

@@ -84,7 +84,8 @@ function clearForm() {
 
 // Send notification
 async function sendNotification() {
-  if (!pushToken.value) {
+  if (isSubmitting.value) return;
+  if (!pushToken.value.trim()) {
     toast({
       title: 'Error',
       description: 'Push token is required',
@@ -93,7 +94,7 @@ async function sendNotification() {
     return;
   }
 
-  if (!body.value) {
+  if (!body.value.trim()) {
     toast({
       title: 'Error',
       description: 'Notification body is required',
@@ -107,7 +108,7 @@ async function sendNotification() {
   try {
     // Build the payload for the /api/push endpoint
     const payload: PushPayload = {
-      pushToken: pushToken.value,
+      pushToken: pushToken.value.trim(),
       content: body.value,
     };
 
@@ -195,7 +196,7 @@ async function sendNotification() {
       </CardHeader>
 
       <CardContent>
-        <form @submit.prevent="sendNotification" class="space-y-6">
+        <form id="notification-sender" @submit.prevent="sendNotification" class="space-y-6">
           <div>
             <Label for="push-token">Push Token</Label>
             <Input id="push-token" v-model="pushToken" placeholder="Enter push token" required />
@@ -241,8 +242,8 @@ async function sendNotification() {
       </CardContent>
 
       <CardFooter class="flex justify-between gap-4">
-        <Button variant="outline" @click="clearForm" type="button" class="w-1/3"> Clear Form </Button>
-        <Button type="submit" @click="sendNotification" :disabled="isSubmitting" class="w-2/3">
+        <Button variant="outline" @click="clearForm" type="button" class="shrink-0"> Clear Form </Button>
+        <Button type="submit" form="notification-sender" :disabled="isSubmitting" class="min-w-0 flex-1">
           {{ isSubmitting ? 'Sending...' : 'Send Notification' }}
         </Button>
       </CardFooter>

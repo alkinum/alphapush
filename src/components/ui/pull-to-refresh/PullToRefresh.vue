@@ -59,11 +59,12 @@ const handleContainerScroll = () => {
 
 // Check if window is at the top
 const isWindowAtTop = () => {
-  return document.body.scrollTop === 0;
+  return Math.max(window.scrollY, document.documentElement.scrollTop, document.body.scrollTop) <= 0;
 };
 
 // Touch event handlers
 const handleTouchStart = (e: TouchEvent) => {
+  wasAtTop.value = false;
   if (!props.enabled || !containerRef.value) return;
 
   // First check if window is scrolled, if so, don't proceed
@@ -130,6 +131,7 @@ const handleTouchMove = (e: TouchEvent) => {
 };
 
 const handleTouchEnd = () => {
+  wasAtTop.value = false;
   if (!props.enabled || !isPulling.value) return;
 
   // Reset direction detection
@@ -290,6 +292,7 @@ onUnmounted(() => {
     @touchstart="handleTouchStart"
     @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
+    @touchcancel="resetPullState"
   >
     <!-- Pull container for unified movement -->
     <div class="ptr-pull-container" :style="{ transform: `translateY(${pullContentOffset}px)` }">
@@ -357,7 +360,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgb(var(--color-background) / 0.95);
+  background-color: hsl(var(--background) / 0.95);
   z-index: 10;
   padding-bottom: 16px;
   box-sizing: border-box;
