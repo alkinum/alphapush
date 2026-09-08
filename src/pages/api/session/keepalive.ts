@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
-import { getSession } from '@/lib/auth';
+import { createAuth } from '@/lib/auth';
 import { logger } from '@/utils/logger';
 
 const jsonHeaders = {
@@ -10,12 +10,28 @@ const jsonHeaders = {
 
 export const POST: APIRoute = async (context) => {
   try {
-    const session = await getSession(context.request, env.DB, { disableCookieCache: true });
+    const origin = context.request.headers.get('origin');
+    if ((origin && origin !== context.url.origin) || context.request.headers.get('sec-fetch-site') === 'cross-site') {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: jsonHeaders });
+    }
+
+    const auth = createAuth(env.DB, { baseURL: context.url.origin });
+    const { response: session, headers } = await auth.api.getSession({
+      method: 'POST',
+      headers: context.request.headers,
+      query: { disableCookieCache: true },
+      returnHeaders: true,
+    });
+    // Forward every cookie, including chunked session caches and expired cookies.
+    const responseHeaders = new Headers(jsonHeaders);
+    for (const cookie of headers.getSetCookie()) {
+      responseHeaders.append('Set-Cookie', cookie);
+    }
 
     if (!session?.user?.email) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: jsonHeaders,
+        headers: responseHeaders,
       });
     }
 
@@ -26,7 +42,7 @@ export const POST: APIRoute = async (context) => {
       }),
       {
         status: 200,
-        headers: jsonHeaders,
+        headers: responseHeaders,
       },
     );
   } catch (error) {
@@ -37,5 +53,3 @@ export const POST: APIRoute = async (context) => {
     });
   }
 };
-
-export const GET = POST;

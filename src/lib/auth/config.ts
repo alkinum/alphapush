@@ -46,6 +46,8 @@ export function createAuth(db: D1Database, options: CreateAuthOptions = {}) {
     session: {
       expiresIn: SESSION_EXPIRES_IN_SECONDS,
       updateAge: SESSION_UPDATE_AGE_SECONDS,
+      // SSR reads cannot forward cookies. Renew only through a browser POST.
+      deferSessionRefresh: true,
       cookieCache: {
         enabled: true,
         maxAge: 5 * 60, // 5 minutes

@@ -11,18 +11,19 @@ function isLoggedIn(): boolean {
 }
 
 function getLastKeepaliveAt(): number {
-  const value = localStorage.getItem(KEEPALIVE_STORAGE_KEY);
+  let value: string | null = null;
+  try { value = sessionStorage.getItem(KEEPALIVE_STORAGE_KEY); } catch { /* Storage may be unavailable. */ }
   const parsed = value ? Number(value) : 0;
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function saveKeepaliveAt(timestamp: number): void {
-  localStorage.setItem(KEEPALIVE_STORAGE_KEY, String(timestamp));
+  try { sessionStorage.setItem(KEEPALIVE_STORAGE_KEY, String(timestamp)); } catch { /* Keepalive still works. */ }
 }
 
 async function runKeepalive(force = false): Promise<boolean> {
   if (!isLoggedIn()) {
-    localStorage.removeItem(KEEPALIVE_STORAGE_KEY);
+    saveKeepaliveAt(0);
     return false;
   }
 
@@ -41,6 +42,7 @@ async function runKeepalive(force = false): Promise<boolean> {
   inFlight = fetch(KEEPALIVE_ENDPOINT, {
     method: 'POST',
     credentials: 'same-origin',
+    signal: AbortSignal.timeout(10000),
     headers: {
       'Content-Type': 'application/json',
     },
@@ -48,7 +50,8 @@ async function runKeepalive(force = false): Promise<boolean> {
     .then((response) => {
       if (!response.ok) {
         if (response.status === 401) {
-          localStorage.removeItem(KEEPALIVE_STORAGE_KEY);
+          saveKeepaliveAt(0);
+          document.dispatchEvent(new CustomEvent('alphapush:session-expired'));
         }
         return false;
       }
@@ -74,6 +77,7 @@ export function initializeSessionKeepalive(): void {
 
   isInitialized = true;
   void runKeepalive(true);
+  document.addEventListener('astro:page-load', () => { void runKeepalive(true); });
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
